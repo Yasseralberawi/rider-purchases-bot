@@ -1,73 +1,166 @@
-// logic/productSearch.js
-// منطق اختيار أفضل 3 منتجات (أرخص / أفضل قيمة / أعلى جودة)
+// ============================================================
+//  Rider Purchases Bot – Product Search Logic (Full File)
+// ============================================================
 
-const { PRODUCTS, filterProducts } = require("../data/products");
-
-/**
- * اختيار منتج حسب qualityTier معيّن
- * tiers: "budget" | "value" | "premium"
- */
-function pickByTier(products, tier) {
-  if (!products || !products.length) return null;
-  return products.find((p) => p.qualityTier === tier) || null;
+// Helper: Amazon search URL with affiliate tag
+function buildAmazonSearchUrl(query) {
+  const tag = process.env.AMAZON_ASSOCIATE_TAG || "";
+  const encoded = encodeURIComponent(query.trim());
+  let url = `https://www.amazon.com/s?k=${encoded}`;
+  if (tag) url += `&tag=${tag}`;
+  return url;
 }
 
-/**
- * اختيار أفضل 3 منتجات:
- * - cheapest   => أرخص خيار (عادة من tier "budget" أو الأقل سعرًا)
- * - bestValue  => أفضل قيمة مقابل السعر (عادة من tier "value")
- * - premium    => أعلى جودة (عادة من tier "premium" أو الأغلى)
- *
- * filters:
- *  - category   (مثال: "safety")
- *  - itemType   (مثال: "helmet-fullface")
- *  - usage      (مثال: "touring" | "city" | "adventure")
- *  - bikeType   (مثال: "sport" | "cruiser" | "scooter" | "adventure")
- */
-function selectTop3Products(filters = {}) {
-  const candidates = filterProducts(filters);
+// ============================================================
+// 🟧 1) Helmet Logic (Full-Face, Modular, Half)
+// ============================================================
 
-  if (!candidates.length) {
-    return {
-      items: [],
-      totalMatched: 0,
-      filtersApplied: filters,
-    };
-  }
+function buildHelmetQuery(context) {
+  const usage = context.usage || "";
+  const bikeType = context.bikeType || "";
+  const category = "helmet-fullface";
 
-  // ترتيب عام حسب السعر (من الأقل للأعلى)
-  const sortedByPrice = [...candidates].sort(
-    (a, b) => (a.priceUSD || 0) - (b.priceUSD || 0)
-  );
-
-  // محاولة اختيار حسب الـ tier أولاً
-  let cheapest = pickByTier(candidates, "budget") || sortedByPrice[0];
-  let bestValue =
-    pickByTier(candidates, "value") ||
-    sortedByPrice[Math.min(1, sortedByPrice.length - 1)];
-  let premium =
-    pickByTier(candidates, "premium") ||
-    sortedByPrice[sortedByPrice.length - 1];
-
-  // ضمان عدم تكرار نفس المنتج في أكثر من فئة
-  const picked = [];
-  function addIfNotDuplicate(label, product) {
-    if (!product) return;
-    if (picked.some((p) => p.product.id === product.id)) return;
-    picked.push({ label, product });
-  }
-
-  addIfNotDuplicate("cheapest", cheapest);
-  addIfNotDuplicate("best_value", bestValue);
-  addIfNotDuplicate("premium", premium);
+  let q = `motorcycle full face helmet ${usage} ${bikeType}`;
 
   return {
-    items: picked,
-    totalMatched: candidates.length,
-    filtersApplied: filters,
+    query: q.trim(),
+    url: buildAmazonSearchUrl(q),
+    category,
+    results: [
+      {
+        label: "cheapest",
+        id: "helmet-ls2-ff353-rapid",
+        name: "LS2 FF353 Rapid",
+        brand: "LS2",
+        store: "Amazon",
+        priceUSD: 95,
+        url: "https://www.amazon.com",
+        qualityTier: "budget",
+      },
+      {
+        label: "best_value",
+        id: "helmet-hjc-c70",
+        name: "HJC C70",
+        brand: "HJC",
+        store: "FC-Moto",
+        priceUSD: 180,
+        url: "https://www.fc-moto.de",
+        qualityTier: "value",
+      },
+      {
+        label: "premium",
+        id: "helmet-shoei-gt-air-2",
+        name: "Shoei GT-Air II",
+        brand: "Shoei",
+        store: "RevZilla",
+        priceUSD: 550,
+        url: "https://www.revzilla.com",
+        qualityTier: "premium",
+      },
+    ],
   };
 }
 
+// ============================================================
+// 🧥 2) Jacket Logic (Riding Jacket – New Section)
+// ============================================================
+
+function buildJacketQuery(context) {
+  const usage = context.usage || "";
+  const bikeType = context.bikeType || "";
+  const category = "jacket";
+
+  let q = `motorcycle riding jacket ${usage} ${bikeType}`;
+
+  return {
+    query: q.trim(),
+    url: buildAmazonSearchUrl(q),
+    category,
+    results: [
+      {
+        label: "best_value",
+        id: "jacket-hwk-adv",
+        name: "HWK Adventure/Touring Jacket",
+        brand: "HWK",
+        store: "Amazon",
+        priceUSD: 89,
+        url: "https://www.amazon.com",
+        qualityTier: "value",
+      },
+      {
+        label: "premium",
+        id: "jacket-alpinestars-t-gp-plus",
+        name: "Alpinestars T-GP Plus R v3",
+        brand: "Alpinestars",
+        store: "RevZilla",
+        priceUSD: 299,
+        url: "https://www.revzilla.com",
+        qualityTier: "premium",
+      },
+      {
+        label: "budget",
+        id: "jacket-borasco",
+        name: "BORASCO Basic Riding Jacket",
+        brand: "Borasco",
+        store: "Amazon",
+        priceUSD: 59,
+        url: "https://www.amazon.com",
+        qualityTier: "budget",
+      },
+    ],
+  };
+}
+
+// ============================================================
+// 🔍 3) Main Router – Detect Category
+// ============================================================
+
+function detectProductCategory(message) {
+  message = message.toLowerCase();
+
+  // Helmets
+  if (
+    message.includes("خوذة") ||
+    message.includes("helmet") ||
+    message.includes("فل فيس") ||
+    message.includes("full face")
+  ) {
+    return "helmet-fullface";
+  }
+
+  // Jackets
+  if (
+    message.includes("جاكيت") ||
+    message.includes("jacket") ||
+    message.includes("جاكيت حماية") ||
+    message.includes("jackets")
+  ) {
+    return "jacket";
+  }
+
+  return null;
+}
+
+// ============================================================
+// 🚀 Exported Search Entry
+// ============================================================
+
+function searchProducts(context) {
+  const cat = context.category;
+
+  if (cat === "helmet-fullface") {
+    return buildHelmetQuery(context);
+  }
+
+  if (cat === "jacket") {
+    return buildJacketQuery(context);
+  }
+
+  return null;
+}
+
 module.exports = {
-  selectTop3Products,
+  detectProductCategory,
+  searchProducts,
+  buildAmazonSearchUrl,
 };
