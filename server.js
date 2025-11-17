@@ -18,7 +18,7 @@ const {
 
 const app = express();
 
-// ===== إعدادات أساسية =====
+// إعدادات أساسية
 const PORT = process.env.PORT || 5050;
 
 // ==============================
@@ -56,7 +56,7 @@ const purchaseProfileSchema = new mongoose.Schema(
     lastUsage: { type: String, default: null }, // city / touring / adventure
 
     lastCategory: { type: String, default: null }, // safety / spare-part / accessory
-    lastItemType: { type: String, default: null }, // helmet-fullface / jacket / gloves / boots / spare-part / accessory-xxx
+    lastItemType: { type: String, default: null }, // helmet-fullface / jacket / gloves / boots / spare-part
 
     lastBikeBrand: { type: String, default: null },
     lastBikeModel: { type: String, default: null },
@@ -121,10 +121,10 @@ function T(lang = "ar") {
       : "Great 👍 Once you answer the questions above, I can suggest suitable options and the best sites.",
     askSparePartCore: isAr
       ? "فهمت إنك بدك قطعة غيار.\nعشان أساعدك بدقة، لازم أعرف بالضبط:\n1) نوع الدراجة (مثال: سبورت، كروزر، سكوتر، أدفنشر)\n2) الماركة والموديل (مثال: Yamaha R3 أو Honda CBR500)\n3) سنة الموديل\n4) اسم القطعة أو وصفها (مثال: تيل فرامل أمامي، فلتر زيت، جنزير...)."
-      : "Got it, you're looking for a spare part.\nTo help accurately I need:\n1) Bike type (sport, cruiser, scooter, adventure)\n2) Brand & model (e.g. Yamaha R3, Honda CBR500)\n3) Year model\n4) The exact part you need (e.g. front brake pads, oil filter, chain...).",
+      : "Got it, you're looking for a spare part.\nTo help accurately I need:\n1) Bike type (sport, cruiser, scooter, adventure)\n2) Brand & model (e.g. Yamaha R3 or Honda CBR500)\n3) Year model\n4) Name/description of the part (e.g. front brake pads, oil filter, chain...).",
     sparePartNextStep: isAr
       ? "اكتب المعلومات اللي تعرفها من النقاط اللي فوق، حتى لو ما كانت كاملة، وأنا أرتب لك الخيارات وأبحث عن أفضل موقع مناسب."
-      : "Please type the info you know from the points above (even if not complete) and I’ll narrow down the options and find the best site.",
+      : "Write the info you know from the points above, even if not complete, and I’ll search for the best options and sites.",
     askAccessory: isAr
       ? "واضح أنك تدور على إكسسوار للدراجة.\nحاب أعرف نوع الإكسسوار ووين رح يُركّب بالضبط (مثلاً: حامل جوال على المقود، شنطة خلفية، شنطة خزان...)."
       : "It looks like you're looking for an accessory.\nI need to know what type of accessory and where it will be mounted (e.g. phone mount on handlebar, rear bag, tank bag...).",
@@ -137,7 +137,8 @@ function T(lang = "ar") {
   };
 }
 
-// helpers لتحويل القيم المختصرة إلى نص عربي/إنجليزي
+// ===== Helpers لتحويل القيم المختصرة إلى نص =====
+
 function helmetLabel(type, lang = "ar") {
   const isAr = lang === "ar";
   if (!type) return null;
@@ -489,15 +490,22 @@ function handleSparePartFlow(message, lang, context) {
   const t = T(lang);
 
   const bikeType = detectBikeType(message, context) || context.bikeType;
-  const brand = context.bikeBrand || null;
-  const model = context.bikeModel || null;
-  const year = context.bikeYear || null;
+  let brand = context.bikeBrand || null;
+  let model = context.bikeModel || null;
+  let year = context.bikeYear || null;
 
   const msg = message.toLowerCase();
 
+  // محاولة بسيطة لاستخراج سنة موديل لو العميل كتب 2018 أو 2020 مثلاً
+  const yearMatch = msg.match(/20[0-3][0-9]/);
+  if (!year && yearMatch) {
+    year = yearMatch[0];
+  }
+
+  // استخراج اسم القطعة بشكل بسيط
   let partName = context.partName || null;
   if (!partName) {
-    if (msg.includes("فلتر")) partName = "فلتر";
+    if (msg.includes("فلتر")) partName = "فلتر زيت";
     else if (msg.includes("تيل") || msg.includes("pads")) partName = "تيل فرامل";
     else if (msg.includes("جنزير") || msg.includes("chain")) partName = "جنزير";
   }
@@ -509,12 +517,57 @@ function handleSparePartFlow(message, lang, context) {
   if (!year) missing.push("bikeYear");
   if (!partName) missing.push("partName");
 
-  let replyParts = [
-    t.welcomeLine,
-    t.genericIntro,
-    t.askSparePartCore,
-    t.sparePartNextStep,
-  ];
+  let replyParts = [t.welcomeLine, t.genericIntro, t.askSparePartCore];
+
+  // لو في بعض المعلومات موجودة، نلخصها للعميل
+  const pieces = [];
+  if (bikeType) pieces.push(bikeTypeLabel(bikeType, lang));
+  if (brand || model) {
+    const bm = [brand, model].filter(Boolean).join(" ");
+    if (bm) pieces.push(bm);
+  }
+  if (year) pieces.push(lang === "ar" ? `موديل ${year}` : `model year ${year}`);
+  if (partName) {
+    pieces.push(
+      lang === "ar" ? `القطعة المطلوبة: ${partName}` : `requested part: ${partName}`
+    );
+  }
+
+  if (pieces.length) {
+    replyParts.push(
+      lang === "ar"
+        ? `المعلومات اللي فهمتها حتى الآن:\n- ${pieces.join("\n- ")}`
+        : `Here is what I understood so far:\n- ${pieces.join("\n- ")}`
+    );
+  }
+
+  // توضيح ما ينقص
+  if (missing.length) {
+    if (lang === "ar") {
+      replyParts.push(
+        "عشان أقدر أحدد روابط دقيقة لقطع الغيار، حاول قدر الإمكان تزودني بالتالي (إن أمكن):\n" +
+          (missing.includes("bikeType")
+            ? "- نوع الدراجة (سبورت / كروزر / سكوتر / أدفنشر)\n"
+            : "") +
+          (missing.includes("bikeBrand") ? "- ماركة الدراجة (Yamaha, Honda...)\n" : "") +
+          (missing.includes("bikeModel") ? "- موديل الدراجة (R3, CBR500...)\n" : "") +
+          (missing.includes("bikeYear") ? "- سنة الموديل\n" : "") +
+          (missing.includes("partName") ? "- اسم أو وصف القطعة المطلوبة\n" : "")
+      );
+    } else {
+      replyParts.push(
+        "To give you precise spare part links, please share as much as possible of:\n" +
+          (missing.includes("bikeType") ? "- Bike type (sport / cruiser / scooter / adventure)\n" : "") +
+          (missing.includes("bikeBrand") ? "- Brand (Yamaha, Honda...)\n" : "") +
+          (missing.includes("bikeModel") ? "- Model (R3, CBR500...)\n" : "") +
+          (missing.includes("bikeYear") ? "- Year model\n" : "") +
+          (missing.includes("partName") ? "- Name or description of the part\n" : "")
+      );
+    }
+  } else {
+    // لو كل المعلومات مكتملة، نخلي الرد النهائي يتعدل لاحقاً في مكان آخر بإضافة رابط أمازون
+    replyParts.push(t.sparePartNextStep);
+  }
 
   return {
     category: "spare-part",
@@ -636,10 +689,11 @@ app.post("/api/chat/purchases", async (req, res) => {
       };
     }
 
-    // 4) لو المعلومات مكتملة لخوذة / جاكيت / قفازات / بوت → نبحث عن منتجات + رابط Amazon
+    // 4) منطق البحث عن المنتجات / الروابط
     let productSearch = null;
     let amazonSearch = null;
 
+    // 4-أ) معدات السلامة: خوذة / جاكيت / قفازات / بوت
     if (
       result.category === "safety" &&
       result.usage &&
@@ -768,6 +822,47 @@ app.post("/api/chat/purchases", async (req, res) => {
               : `${introLine}\n\n${lines.join("\n")}`;
         }
       }
+    }
+
+    // 4-ب) قطع الغيار: عندما تكون كل البيانات الأساسية متوفرة
+    if (
+      result.category === "spare-part" &&
+      result.partName &&
+      result.bikeBrand &&
+      result.bikeModel &&
+      result.bikeYear &&
+      (!result.missingInfo || result.missingInfo.length === 0)
+    ) {
+      amazonSearch = buildAmazonSearchLinkFromContext({
+        category: "spare-part",
+        itemType: "spare-part",
+        usage: result.usage,
+        bikeType: result.bikeType,
+        brand: result.bikeBrand,
+        model: result.bikeModel,
+        year: result.bikeYear,
+        partName: result.partName,
+        lang,
+      });
+
+      const bikeDesc =
+        lang === "ar"
+          ? `${result.bikeBrand} ${result.bikeModel} موديل ${result.bikeYear}`
+          : `${result.bikeBrand} ${result.bikeModel} (${result.bikeYear})`;
+
+      const lineHeader =
+        lang === "ar"
+          ? `ممتاز، صار عندي بيانات كافية عن دراجتك:\n- ${bikeDesc}\n- القطعة المطلوبة: ${result.partName}`
+          : `Great, I now have enough info about your bike:\n- ${bikeDesc}\n- Requested part: ${result.partName}`;
+
+      const amazonLine =
+        amazonSearch && amazonSearch.url
+          ? lang === "ar"
+            ? `🔍 هذا رابط بحث مخصص على Amazon حسب طلبك:\n${amazonSearch.url}\n\n*ملاحظة:* تأكد دائماً من توافق رقم القطعة مع موديل وسنة دراجتك قبل الشراء.`
+            : `🔍 Here is a tailored Amazon search link based on your request:\n${amazonSearch.url}\n\n*Note:* Always double-check that the part number is compatible with your bike model and year before purchasing.`
+          : "";
+
+      result.reply = `${T(lang).welcomeLine}\n\n${lineHeader}\n\n${amazonLine}`;
     }
 
     // 5) تحديث ملف المشتريات في MongoDB
