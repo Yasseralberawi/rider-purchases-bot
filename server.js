@@ -192,6 +192,7 @@ function detectCategory(message = "", context = {}) {
     "بوت",
     "جزمة",
     "boots",
+    "حذاء",
     "درع",
     "protector",
     "حماية",
@@ -338,7 +339,8 @@ function handleSafetyFlow(message, lang, context) {
   const mentionsBoots =
     msg.includes("بوت") ||
     msg.includes("جزمة") ||
-    msg.includes("boots");
+    msg.includes("boots") ||
+    msg.includes("حذاء");
 
   // تحديد نوع القطعة: خوذة أو جاكيت أو قفازات أو بوت
   let itemType = context.itemType || null;
@@ -659,7 +661,7 @@ app.post("/api/chat/purchases", async (req, res) => {
       }
 
       if (productCategory) {
-        // 🔹 رابط بحث Amazon حسب السياق
+        // رابط بحث Amazon حسب السياق
         amazonSearch = buildAmazonSearchLinkFromContext({
           category: result.category,
           itemType: result.itemType,
@@ -671,7 +673,7 @@ app.post("/api/chat/purchases", async (req, res) => {
           lang,
         });
 
-        // 🔹 بحث في القائمة الداخلية
+        // بحث في القائمة الداخلية
         productSearch = searchProducts({
           category: productCategory,
           usage: result.usage,
