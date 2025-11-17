@@ -20,7 +20,7 @@ function buildHelmetQuery(context) {
   const bikeType = context.bikeType || "";
   const category = "helmet-fullface";
 
-  let q = `motorcycle full face helmet ${usage} ${bikeType}`;
+  const q = `motorcycle full face helmet ${usage} ${bikeType}`;
 
   return {
     query: q.trim(),
@@ -73,7 +73,7 @@ function buildJacketQuery(context) {
   const bikeType = context.bikeType || "";
   const category = "jacket";
 
-  let q = `motorcycle jacket ${usage} ${bikeType}`;
+  const q = `motorcycle jacket ${usage} ${bikeType}`;
 
   return {
     query: q.trim(),
@@ -118,11 +118,11 @@ function buildJacketQuery(context) {
 }
 
 // ============================================================
-– 🔍 3) Main Router – Detect Category
+// 🔍 3) Main Router – Detect Category
 // ============================================================
 
 function detectProductCategory(message) {
-  message = message.toLowerCase();
+  message = (message || "").toLowerCase();
 
   // Helmets
   if (
@@ -149,7 +149,7 @@ function detectProductCategory(message) {
 }
 
 // ============================================================
-// 🚀 Exported Search Entry
+// 🚀 4) Exported Search Entry
 // ============================================================
 
 function searchProducts(context) {
