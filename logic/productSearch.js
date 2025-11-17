@@ -34,6 +34,7 @@ function buildHelmetQuery(context) {
         brand: "LS2",
         store: "Amazon",
         priceUSD: 95,
+        currency: "USD",
         url: "https://www.amazon.com",
         qualityTier: "budget",
       },
@@ -44,6 +45,7 @@ function buildHelmetQuery(context) {
         brand: "HJC",
         store: "FC-Moto",
         priceUSD: 180,
+        currency: "USD",
         url: "https://www.fc-moto.de",
         qualityTier: "value",
       },
@@ -54,6 +56,7 @@ function buildHelmetQuery(context) {
         brand: "Shoei",
         store: "RevZilla",
         priceUSD: 550,
+        currency: "USD",
         url: "https://www.revzilla.com",
         qualityTier: "premium",
       },
@@ -62,7 +65,7 @@ function buildHelmetQuery(context) {
 }
 
 // ============================================================
-// 🧥 2) Jacket Logic (Riding Jacket – New Section)
+// 🧥 2) Jacket Logic (Riding Jacket)
 // ============================================================
 
 function buildJacketQuery(context) {
@@ -70,7 +73,7 @@ function buildJacketQuery(context) {
   const bikeType = context.bikeType || "";
   const category = "jacket";
 
-  let q = `motorcycle riding jacket ${usage} ${bikeType}`;
+  let q = `motorcycle jacket ${usage} ${bikeType}`;
 
   return {
     query: q.trim(),
@@ -84,6 +87,7 @@ function buildJacketQuery(context) {
         brand: "HWK",
         store: "Amazon",
         priceUSD: 89,
+        currency: "USD",
         url: "https://www.amazon.com",
         qualityTier: "value",
       },
@@ -94,6 +98,7 @@ function buildJacketQuery(context) {
         brand: "Alpinestars",
         store: "RevZilla",
         priceUSD: 299,
+        currency: "USD",
         url: "https://www.revzilla.com",
         qualityTier: "premium",
       },
@@ -104,6 +109,7 @@ function buildJacketQuery(context) {
         brand: "Borasco",
         store: "Amazon",
         priceUSD: 59,
+        currency: "USD",
         url: "https://www.amazon.com",
         qualityTier: "budget",
       },
@@ -112,7 +118,7 @@ function buildJacketQuery(context) {
 }
 
 // ============================================================
-// 🔍 3) Main Router – Detect Category
+– 🔍 3) Main Router – Detect Category
 // ============================================================
 
 function detectProductCategory(message) {
@@ -121,6 +127,7 @@ function detectProductCategory(message) {
   // Helmets
   if (
     message.includes("خوذة") ||
+    message.includes("خودة") ||
     message.includes("helmet") ||
     message.includes("فل فيس") ||
     message.includes("full face")
