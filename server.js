@@ -9,7 +9,7 @@ const morgan = require("morgan");
 const mongoose = require("mongoose");
 require("dotenv").config();
 
-// منطق اختيار المنتجات من القائمة الداخلية (خوذة + جاكيت + قفازات + حذاء)
+// منطق اختيار المنتجات من القائمة الداخلية (خوذة + جاكيت + قفازات + حذاء + إكسسوارات)
 const { searchProducts } = require("./logic/productSearch");
 // خدمة بناء رابط بحث Amazon حسب السياق (تستخدم الـ Affiliate Tag)
 const {
@@ -863,6 +863,52 @@ app.post("/api/chat/purchases", async (req, res) => {
           : "";
 
       result.reply = `${T(lang).welcomeLine}\n\n${lineHeader}\n\n${amazonLine}`;
+    }
+
+    // 4-ج) الإكسسوارات: عندما تتوفر بيانات الاستخدام ونوع الدراجة
+    if (
+      result.category === "accessory" &&
+      result.usage &&
+      result.bikeType &&
+      (!result.missingInfo || result.missingInfo.length === 0)
+    ) {
+      // استخدام منطق productSearch الجديد للإكسسوارات
+      productSearch = searchProducts({
+        category: "accessory",
+        usage: result.usage,
+        bikeType: result.bikeType,
+      });
+
+      if (productSearch && productSearch.url) {
+        amazonSearch = {
+          query: productSearch.query,
+          url: productSearch.url,
+        };
+
+        const usageText = usageLabel(result.usage, lang);
+        const bikeTypeText = bikeTypeLabel(result.bikeType, lang);
+
+        let header;
+        if (lang === "ar") {
+          header =
+            "ممتاز، صار عندي فكرة واضحة عن نوع الإكسسوارات اللي تناسب استخدامك ودراجتك.";
+        } else {
+          header =
+            "Great, I now have a clear idea about the accessories that fit your bike and usage.";
+        }
+
+        const details =
+          lang === "ar"
+            ? `- نوع الاستخدام: ${usageText || "غير محدد"}\n- نوع الدراجة: ${bikeTypeText || "غير محدد"}`
+            : `- Usage: ${usageText || "not specified"}\n- Bike type: ${bikeTypeText || "not specified"}`;
+
+        const amazonLine =
+          lang === "ar"
+            ? `🔍 هذا رابط بحث مخصص على Amazon للإكسسوارات المناسبة:\n${amazonSearch.url}`
+            : `🔍 Here is a tailored Amazon search link for suitable accessories:\n${amazonSearch.url}`;
+
+        result.reply = `${T(lang).welcomeLine}\n\n${header}\n\n${details}\n\n${amazonLine}`;
+      }
     }
 
     // 5) تحديث ملف المشتريات في MongoDB
