@@ -1,5 +1,6 @@
 // ============================================================
 //  Rider Purchases Bot – Product Search Logic (Full File)
+//  Helmets + Jackets + Gloves + Boots
 // ============================================================
 
 // Helper: Amazon search URL with affiliate tag
@@ -12,7 +13,7 @@ function buildAmazonSearchUrl(query) {
 }
 
 // ============================================================
-// 🟧 1) Helmet Logic (Full-Face, Modular, Half)
+// 🪖 1) Helmet Logic (Full-Face, Modular, Half)
 // ============================================================
 
 function buildHelmetQuery(context) {
@@ -118,7 +119,113 @@ function buildJacketQuery(context) {
 }
 
 // ============================================================
-// 🔍 3) Main Router – Detect Category
+// 🧤 3) Gloves Logic (Riding Gloves)
+// ============================================================
+
+function buildGlovesQuery(context) {
+  const usage = context.usage || "";
+  const bikeType = context.bikeType || "";
+  const category = "gloves";
+
+  const q = `motorcycle riding gloves ${usage} ${bikeType}`;
+
+  return {
+    query: q.trim(),
+    url: buildAmazonSearchUrl(q),
+    category,
+    results: [
+      {
+        label: "budget",
+        id: "gloves-budget-basic",
+        name: "Motorcycle Protective Gloves Basic",
+        brand: "Generic",
+        store: "Amazon",
+        priceUSD: 35,
+        currency: "USD",
+        url: "https://www.amazon.com",
+        qualityTier: "budget",
+      },
+      {
+        label: "best_value",
+        id: "gloves-alpinestars-sp2",
+        name: "Alpinestars SP-2 V3 Gloves",
+        brand: "Alpinestars",
+        store: "RevZilla",
+        priceUSD: 130,
+        currency: "USD",
+        url: "https://www.revzilla.com",
+        qualityTier: "value",
+      },
+      {
+        label: "premium",
+        id: "gloves-dainese-carbon",
+        name: "Dainese Carbon D1 Long Gloves",
+        brand: "Dainese",
+        store: "RevZilla",
+        priceUSD: 220,
+        currency: "USD",
+        url: "https://www.revzilla.com",
+        qualityTier: "premium",
+      },
+    ],
+  };
+}
+
+// ============================================================
+// 🥾 4) Boots Logic (Riding Boots)
+// ============================================================
+
+function buildBootsQuery(context) {
+  const usage = context.usage || "";
+  const bikeType = context.bikeType || "";
+  const category = "boots";
+
+  const q = `motorcycle riding boots ${usage} ${bikeType}`;
+
+  return {
+    query: q.trim(),
+    url: buildAmazonSearchUrl(q),
+    category,
+    results: [
+      {
+        label: "budget",
+        id: "boots-budget-basic",
+        name: "Entry-Level Motorcycle Riding Boots",
+        brand: "Generic",
+        store: "Amazon",
+        priceUSD: 85,
+        currency: "USD",
+        url: "https://www.amazon.com",
+        qualityTier: "budget",
+      },
+      {
+        label: "best_value",
+        id: "boots-forma-adventure",
+        name: "Forma Adventure Boots",
+        brand: "Forma",
+        store: "FC-Moto",
+        priceUSD: 279,
+        currency: "USD",
+        url: "https://www.fc-moto.de",
+        qualityTier: "value",
+      },
+      {
+        label: "premium",
+        id: "boots-alpinestars-tech7",
+        name: "Alpinestars Tech 7 Enduro Boots",
+        brand: "Alpinestars",
+        store: "RevZilla",
+        priceUSD: 430,
+        currency: "USD",
+        url: "https://www.revzilla.com",
+        qualityTier: "premium",
+      },
+    ],
+  };
+}
+
+// ============================================================
+// 🔍 5) Main Router – Detect Product Category (optional helper)
 // ============================================================
 
 function detectProductCategory(message) {
@@ -145,11 +252,29 @@ function detectProductCategory(message) {
     return "jacket";
   }
 
+  // Gloves
+  if (
+    message.includes("قفازات") ||
+    message.includes("قلفز") ||
+    message.includes("gloves")
+  ) {
+    return "gloves";
+  }
+
+  // Boots
+  if (
+    message.includes("بوت") ||
+    message.includes("جزمة") ||
+    message.includes("boots")
+  ) {
+    return "boots";
+  }
+
   return null;
 }
 
 // ============================================================
-// 🚀 4) Exported Search Entry
+// 🚀 6) Exported Search Entry
 // ============================================================
 
 function searchProducts(context) {
@@ -161,6 +286,14 @@ function searchProducts(context) {
 
   if (cat === "jacket") {
     return buildJacketQuery(context);
+  }
+
+  if (cat === "gloves") {
+    return buildGlovesQuery(context);
+  }
+
+  if (cat === "boots") {
+    return buildBootsQuery(context);
   }
 
   return null;
