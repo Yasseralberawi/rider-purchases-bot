@@ -1,10 +1,11 @@
 // server.js
-// Backend مستقل - بوت رايدر المشتريات
+// Backend مستقل - بوت رايدر المشتريات (مع MongoDB + ملف مشتريات لكل عميل)
 
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
 const morgan = require("morgan");
+const mongoose = require("mongoose");
 require("dotenv").config();
 
 const app = express();
@@ -12,7 +13,63 @@ const app = express();
 // ===== إعدادات أساسية =====
 const PORT = process.env.PORT || 5050;
 
-// Middlewares أساسية
+// ==============================
+// اتصال MongoDB
+// ==============================
+const MONGODB_URI = process.env.MONGODB_URI;
+
+if (!MONGODB_URI) {
+  console.warn("⚠️ MONGODB_URI غير موجود في المتغيرات البيئية. الاتصال بقاعدة البيانات لن يعمل.");
+} else {
+  mongoose
+    .connect(MONGODB_URI)
+    .then(() => {
+      console.log("✅ متصل بقاعدة بيانات MongoDB بنجاح (رايدر المشتريات).");
+    })
+    .catch((err) => {
+      console.error("❌ فشل الاتصال بـ MongoDB في رايدر المشتريات:", err.message);
+    });
+}
+
+// ==============================
+// تعريف نموذج ملف مشتريات العميل
+// ==============================
+const purchaseProfileSchema = new mongoose.Schema(
+  {
+    userId: { type: String, required: true, unique: true, index: true },
+
+    // آخر تفضيلات معروفة
+    preferredBikeType: { type: String, default: null }, // sport / cruiser / scooter / adventure
+    lastUsage: { type: String, default: null }, // city / touring / adventure
+
+    lastCategory: { type: String, default: null }, // safety / spare-part / accessory
+    lastItemType: { type: String, default: null }, // helmet-fullface / spare-part / accessory-xxx
+
+    lastBikeBrand: { type: String, default: null },
+    lastBikeModel: { type: String, default: null },
+    lastBikeYear: { type: String, default: null },
+
+    lastPartName: { type: String, default: null }, // اسم قطعة الغيار إن وجد
+
+    // تاريخ بسيط للمحادثات
+    history: [
+      {
+        message: { type: String },
+        reply: { type: String },
+        category: { type: String },
+        itemType: { type: String },
+        createdAt: { type: Date, default: Date.now },
+      },
+    ],
+  },
+  { timestamps: true }
+);
+
+const PurchaseProfile =
+  mongoose.models.PurchaseProfile ||
+  mongoose.model("PurchaseProfile", purchaseProfileSchema);
+
+// ===== Middlewares أساسية =====
 app.use(express.json({ limit: "2mb" }));
 app.use(
   cors({
@@ -224,7 +281,6 @@ function handleSafetyFlow(message, lang, context) {
 
   let replyParts = [t.welcomeLine];
 
-  // لو الرسالة تتكلم بشكل واضح عن خوذة
   const msg = message.toLowerCase();
   const mentionsHelmet =
     msg.includes("خوذة") ||
@@ -235,17 +291,9 @@ function handleSafetyFlow(message, lang, context) {
   if (mentionsHelmet) {
     replyParts.push(t.genericIntro);
 
-    if (!helmetType) {
-      replyParts.push(t.askHelmetType);
-    }
-
-    if (!usage) {
-      replyParts.push(t.askUsage);
-    }
-
-    if (!bikeType) {
-      replyParts.push(t.askBikeTypeForSafety);
-    }
+    if (!helmetType) replyParts.push(t.askHelmetType);
+    if (!usage) replyParts.push(t.askUsage);
+    if (!bikeType) replyParts.push(t.askBikeTypeForSafety);
 
     if (missing.length === 0) {
       replyParts.push(
@@ -256,7 +304,6 @@ function handleSafetyFlow(message, lang, context) {
       );
     }
   } else {
-    // معدات سلامة عامة (مش بالضرورة خوذة)
     replyParts.push(
       lang === "ar"
         ? "واضح أنك تبحث عن معدات سلامة للدراجة (مثل خوذة، جاكيت، قفازات أو غيرها).\nحدد لي أكثر: شو نوع القطعة اللي في بالك؟"
@@ -285,10 +332,8 @@ function handleSparePartFlow(message, lang, context) {
 
   const msg = message.toLowerCase();
 
-  // محاولة استخراج اسم القطعة بشكل بسيط (بدون تعقيد)
   let partName = context.partName || null;
   if (!partName) {
-    // مثال بسيط: لو ذكر كلمة فلتر زيت / تيل فرامل الخ…
     if (msg.includes("فلتر")) partName = "فلتر";
     else if (msg.includes("تيل") || msg.includes("pads")) partName = "تيل فرامل";
     else if (msg.includes("جنزير") || msg.includes("chain")) partName = "جنزير";
@@ -366,8 +411,8 @@ app.post("/api/chat/purchases", async (req, res) => {
       });
     }
 
-    const category = detectCategory(message, context);
     const t = T(lang);
+    const category = detectCategory(message, context);
 
     let result;
 
@@ -378,13 +423,61 @@ app.post("/api/chat/purchases", async (req, res) => {
     } else if (category === "accessory") {
       result = handleAccessoryFlow(message, lang, context);
     } else {
-      // ما عرفنا لسه هو أي نوع => نسأل توضيح
       result = {
         category: null,
         itemType: null,
+        bikeType: null,
+        usage: null,
         missingInfo: ["category"],
         reply: `${t.welcomeLine}\n\n${t.genericIntro}\n\n${t.fallback}`,
       };
+    }
+
+    // =========================
+    // تخزين ملف المشتريات في MongoDB
+    // =========================
+    if (MONGODB_URI && mongoose.connection.readyState === 1) {
+      const profileUserId = userId || "guest";
+
+      const profileUpdate = {
+        lastCategory: result.category || null,
+        lastItemType: result.itemType || null,
+        lastBikeBrand: result.bikeBrand || null,
+        lastBikeModel: result.bikeModel || null,
+        lastBikeYear: result.bikeYear || null,
+        lastPartName: result.partName || null,
+      };
+
+      if (result.bikeType) {
+        profileUpdate.preferredBikeType = result.bikeType;
+      }
+      if (result.usage) {
+        profileUpdate.lastUsage = result.usage;
+      }
+
+      await PurchaseProfile.findOneAndUpdate(
+        { userId: profileUserId },
+        {
+          $set: profileUpdate,
+          $push: {
+            history: {
+              message,
+              reply: result.reply,
+              category: result.category || null,
+              itemType: result.itemType || null,
+            },
+          },
+        },
+        { upsert: true, new: true }
+      );
+    } else {
+      if (!MONGODB_URI) {
+        console.warn("⚠️ لم يتم تخزين الملف لأن MONGODB_URI غير مضبوط.");
+      } else {
+        console.warn(
+          "⚠️ لم يتم تخزين الملف لأن اتصال MongoDB غير جاهز (readyState != 1)."
+        );
+      }
     }
 
     return res.json({
