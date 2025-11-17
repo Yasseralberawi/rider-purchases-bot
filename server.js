@@ -593,7 +593,7 @@ app.post("/api/chat/purchases", async (req, res) => {
 
           if (lang === "ar") {
             lines.push(
-              `\n${idx + 1}) ${labelText}\n${product.name} (${product.brand})\nالمتجر: ${product.store}\nالسعر التقريبي: ${product.priceUSD} ${product.currency}\nالرابط: https://www.amazon.com`
+              `\n${idx + 1}) ${labelText}\n${product.name} (${product.brand})\nالمتجر: ${product.store}\nالسعر التقريبي: ${product.priceUSD} ${product.currency}\nالرابط: ${product.url}`
             );
           } else {
             lines.push(
