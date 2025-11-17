@@ -9,7 +9,7 @@ const morgan = require("morgan");
 const mongoose = require("mongoose");
 require("dotenv").config();
 
-// منطق اختيار المنتجات من القائمة الداخلية (خوذة + جاكيت حالياً)
+// منطق اختيار المنتجات من القائمة الداخلية (خوذة + جاكيت + قفازات + حذاء)
 const { searchProducts } = require("./logic/productSearch");
 // خدمة بناء رابط بحث Amazon حسب السياق (تستخدم الـ Affiliate Tag)
 const {
@@ -56,7 +56,7 @@ const purchaseProfileSchema = new mongoose.Schema(
     lastUsage: { type: String, default: null }, // city / touring / adventure
 
     lastCategory: { type: String, default: null }, // safety / spare-part / accessory
-    lastItemType: { type: String, default: null }, // helmet-fullface / jacket / spare-part / accessory-xxx
+    lastItemType: { type: String, default: null }, // helmet-fullface / jacket / gloves / boots / spare-part / accessory-xxx
 
     lastBikeBrand: { type: String, default: null },
     lastBikeModel: { type: String, default: null },
@@ -312,7 +312,7 @@ function detectUsage(message = "", context = {}) {
   return null;
 }
 
-// منطق الرد في حالة معدات السلامة (خوذة + جاكيت)
+// منطق الرد في حالة معدات السلامة (خوذة + جاكيت + قفازات + بوت)
 function handleSafetyFlow(message, lang, context) {
   const t = T(lang);
 
@@ -330,12 +330,26 @@ function handleSafetyFlow(message, lang, context) {
     msg.includes("jacket") ||
     msg.includes("جاكيت حماية");
 
-  // تحديد نوع القطعة: خوذة أو جاكيت
+  const mentionsGloves =
+    msg.includes("قفازات") ||
+    msg.includes("قلفز") ||
+    msg.includes("gloves");
+
+  const mentionsBoots =
+    msg.includes("بوت") ||
+    msg.includes("جزمة") ||
+    msg.includes("boots");
+
+  // تحديد نوع القطعة: خوذة أو جاكيت أو قفازات أو بوت
   let itemType = context.itemType || null;
   if (helmetTypeDetected) {
     itemType = helmetTypeDetected;
   } else if (!itemType && mentionsJacket) {
     itemType = "jacket";
+  } else if (!itemType && mentionsGloves) {
+    itemType = "gloves";
+  } else if (!itemType && mentionsBoots) {
+    itemType = "boots";
   }
 
   const bikeType = detectBikeType(message, context) || context.bikeType;
@@ -343,7 +357,7 @@ function handleSafetyFlow(message, lang, context) {
 
   const missing = [];
 
-  // نحتاج دائماً usage + bikeType للسلامة
+  // نحتاج usage + bikeType لكل معدات السلامة
   if (!usage) missing.push("usage");
   if (!bikeType) missing.push("bikeType");
 
@@ -352,7 +366,7 @@ function handleSafetyFlow(message, lang, context) {
     (!helmetTypeDetected && mentionsHelmet) ||
     (itemType && itemType === "helmet-unknown")
   ) {
-    missing.push("helmetType");
+    if (!missing.includes("helmetType")) missing.push("helmetType");
   }
 
   let replyParts = [t.welcomeLine];
@@ -401,7 +415,7 @@ function handleSafetyFlow(message, lang, context) {
       );
     }
   } else if (mentionsJacket) {
-    // جاكيت حماية: نسأل عن الاستخدام + نوع الدراجة
+    // جاكيت حماية
     if (!usage) replyParts.push(t.askUsage);
     if (!bikeType) replyParts.push(t.askBikeTypeForSafety);
 
@@ -413,12 +427,38 @@ function handleSafetyFlow(message, lang, context) {
             : "\nThen I can prepare jacket recommendations and best-price links.")
       );
     }
+  } else if (mentionsGloves) {
+    // قفازات حماية
+    if (!usage) replyParts.push(t.askUsage);
+    if (!bikeType) replyParts.push(t.askBikeTypeForSafety);
+
+    if (missing.length === 0) {
+      replyParts.push(
+        t.safetyAlmostReady +
+          (lang === "ar"
+            ? "\nبعدها أقدر أجهز لك ترشيحات قفازات حماية وروابط لأفضل الأسعار."
+            : "\nThen I can prepare glove recommendations and best-price links.")
+      );
+    }
+  } else if (mentionsBoots) {
+    // حذاء/بوت حماية
+    if (!usage) replyParts.push(t.askUsage);
+    if (!bikeType) replyParts.push(t.askBikeTypeForSafety);
+
+    if (missing.length === 0) {
+      replyParts.push(
+        t.safetyAlmostReady +
+          (lang === "ar"
+            ? "\nبعدها أقدر أجهز لك ترشيحات أحذية ركوب موتوسايكل وروابط لأفضل الأسعار."
+            : "\nThen I can prepare riding boots recommendations and best-price links.")
+      );
+    }
   } else {
     // معدات سلامة عامة
     replyParts.push(
       lang === "ar"
-        ? "واضح أنك تبحث عن معدات سلامة للدراجة (مثل خوذة، جاكيت، قفازات أو غيرها).\nحدد لي أكثر: شو نوع القطعة اللي في بالك؟"
-        : "It seems you're looking for safety gear (helmet, jacket, gloves, etc.).\nTell me which item you have in mind."
+        ? "واضح أنك تبحث عن معدات سلامة للدراجة (مثل خوذة، جاكيت، قفازات أو بوت).\nحدد لي أكثر: شو نوع القطعة اللي في بالك؟"
+        : "It seems you're looking for safety gear (helmet, jacket, gloves, boots, etc.).\nTell me which item you have in mind."
     );
   }
 
@@ -426,7 +466,15 @@ function handleSafetyFlow(message, lang, context) {
     category: "safety",
     itemType:
       itemType ||
-      (mentionsHelmet ? "helmet-unknown" : mentionsJacket ? "jacket" : null),
+      (mentionsHelmet
+        ? "helmet-unknown"
+        : mentionsJacket
+        ? "jacket"
+        : mentionsGloves
+        ? "gloves"
+        : mentionsBoots
+        ? "boots"
+        : null),
     bikeType: bikeType || null,
     usage: usage || null,
     missingInfo: missing,
@@ -586,7 +634,7 @@ app.post("/api/chat/purchases", async (req, res) => {
       };
     }
 
-    // 4) لو المعلومات مكتملة لخوذة أو جاكيت → نبحث عن منتجات + رابط Amazon
+    // 4) لو المعلومات مكتملة لخوذة / جاكيت / قفازات / بوت → نبحث عن منتجات + رابط Amazon
     let productSearch = null;
     let amazonSearch = null;
 
@@ -604,6 +652,10 @@ app.post("/api/chat/purchases", async (req, res) => {
         productCategory = "helmet-fullface";
       } else if (result.itemType === "jacket") {
         productCategory = "jacket";
+      } else if (result.itemType === "gloves") {
+        productCategory = "gloves";
+      } else if (result.itemType === "boots") {
+        productCategory = "boots";
       }
 
       if (productCategory) {
@@ -619,18 +671,14 @@ app.post("/api/chat/purchases", async (req, res) => {
           lang,
         });
 
-        // 🔹 بحث في القائمة الداخلية (خوذة أو جاكيت)
+        // 🔹 بحث في القائمة الداخلية
         productSearch = searchProducts({
           category: productCategory,
           usage: result.usage,
           bikeType: result.bikeType,
         });
 
-        if (
-          productSearch &&
-          productSearch.results &&
-          productSearch.results.length
-        ) {
+        if (productSearch && productSearch.results && productSearch.results.length) {
           const lines = [];
 
           productSearch.results.forEach((product, idx) => {
@@ -668,26 +716,39 @@ app.post("/api/chat/purchases", async (req, res) => {
               helmetLabel(result.itemType, lang) ||
               (lang === "ar" ? "خوذة" : "helmet");
           } else if (productCategory === "jacket") {
-            itemText =
-              lang === "ar" ? "جاكيت حماية" : "riding jacket";
+            itemText = lang === "ar" ? "جاكيت حماية" : "riding jacket";
+          } else if (productCategory === "gloves") {
+            itemText = lang === "ar" ? "قفازات حماية" : "riding gloves";
+          } else if (productCategory === "boots") {
+            itemText = lang === "ar" ? "بوت/حذاء ركوب" : "riding boots";
           }
 
           let detailParts = [];
           if (itemText) detailParts.push(itemText);
-          if (usageText) detailParts.push(lang === "ar" ? `مناسبة لـ ${usageText}` : `for ${usageText}`);
-          if (bikeTypeText) detailParts.push(lang === "ar" ? `على ${bikeTypeText}` : `on a ${bikeTypeText}`);
+          if (usageText)
+            detailParts.push(
+              lang === "ar" ? `مناسبة لـ ${usageText}` : `for ${usageText}`
+            );
+          if (bikeTypeText)
+            detailParts.push(
+              lang === "ar" ? `على ${bikeTypeText}` : `on a ${bikeTypeText}`
+            );
 
           let introLine;
           if (lang === "ar") {
             const detailSentence =
               detailParts.length > 0
-                ? `جهّزت لك 3 خيارات ${detailParts.join(" ، ")}, مرتّبة حسب الأفضلية:`
+                ? `جهّزت لك 3 خيارات ${detailParts.join(
+                    " ، "
+                  )}, مرتّبة حسب الأفضلية:`
                 : "جهّزت لك 3 خيارات مناسبة، مرتّبة حسب الأفضلية:";
             introLine = `تمام، صار عندي صورة واضحة عن احتياجك 👌\n${detailSentence}`;
           } else {
             const detailSentence =
               detailParts.length > 0
-                ? `I prepared 3 options ${detailParts.join(" ")} ranked for you:`
+                ? `I prepared 3 options ${detailParts.join(
+                    " "
+                  )} ranked for you:`
                 : "I prepared 3 suitable options ranked for you:";
             introLine = `Great, I now have a clear understanding of your needs 👌\n${detailSentence}`;
           }
