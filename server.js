@@ -130,7 +130,7 @@ function T(lang = "ar") {
   };
 }
 
-// helpers لتحويل القيم المختصرة إلى نص عربي
+// helpers لتحويل القيم المختصرة إلى نص عربي/إنجليزي
 function helmetLabel(type, lang = "ar") {
   const isAr = lang === "ar";
   if (!type) return null;
@@ -147,7 +147,8 @@ function usageLabel(usage, lang = "ar") {
   const isAr = lang === "ar";
   if (!usage) return null;
   if (usage === "city") return isAr ? "استخدام مدينة/مشاوير يومية" : "city use";
-  if (usage === "touring") return isAr ? "سفر/هاي وي" : "touring/highway use";
+  if (usage === "touring")
+    return isAr ? "سفر/هاي وي" : "touring/highway use";
   if (usage === "adventure")
     return isAr ? "أدفنشر/اوف رود" : "adventure/off-road use";
   return usage;
@@ -404,7 +405,7 @@ function handleSparePartFlow(message, lang, context) {
   if (!brand) missing.push("bikeBrand");
   if (!model) missing.push("bikeModel");
   if (!year) missing.push("bikeYear");
-  if (!partName) missing.push("partName";
+  if (!partName) missing.push("partName");
 
   let replyParts = [
     t.welcomeLine,
