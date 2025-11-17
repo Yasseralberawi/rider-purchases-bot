@@ -1,6 +1,6 @@
 // server.js
 // Backend مستقل - بوت رايدر المشتريات
-// MongoDB + ملف مشتريات لكل عميل + ذاكرة قوية + اختيار أفضل 3 منتجات + رد ديناميكي
+// MongoDB + ملف مشتريات لكل عميل + ذاكرة قوية + اختيار أفضل 3 منتجات + رد ديناميكي + رابط بحث Amazon
 
 const express = require("express");
 const cors = require("cors");
@@ -9,8 +9,12 @@ const morgan = require("morgan");
 const mongoose = require("mongoose");
 require("dotenv").config();
 
-// منطق اختيار المنتجات
+// منطق اختيار المنتجات من القائمة الداخلية
 const { selectTop3Products } = require("./logic/productSearch");
+// خدمة بناء رابط بحث Amazon حسب السياق
+const {
+  buildAmazonSearchLinkFromContext,
+} = require("./services/amazonSearch");
 
 const app = express();
 
@@ -537,8 +541,10 @@ app.post("/api/chat/purchases", async (req, res) => {
       };
     }
 
-    // 4) لو المعلومات مكتملة لخوذة → نبحث عن أفضل 3 منتجات ونبني رد ديناميكي
+    // 4) لو المعلومات مكتملة لخوذة → نبحث عن أفضل 3 منتجات ونبني رد ديناميكي + رابط Amazon
     let productSearch = null;
+    let amazonSearch = null;
+
     if (
       result.category === "safety" &&
       result.itemType &&
@@ -548,6 +554,19 @@ app.post("/api/chat/purchases", async (req, res) => {
       result.missingInfo &&
       result.missingInfo.length === 0
     ) {
+      // 🔹 توليد رابط بحث Amazon مبني على السياق
+      amazonSearch = buildAmazonSearchLinkFromContext({
+        category: result.category,
+        itemType: result.itemType,
+        usage: result.usage,
+        bikeType: result.bikeType,
+        brand: result.bikeBrand,
+        model: result.bikeModel,
+        partName: result.partName,
+        lang,
+      });
+
+      // 🔹 استخدام القائمة الداخلية لاختيار 3 منتجات (LS2 / HJC / Shoei ...)
       productSearch = selectTop3Products({
         category: "safety",
         itemType: "helmet-fullface", // حالياً نركز على فل فيس كبداية
@@ -574,7 +593,7 @@ app.post("/api/chat/purchases", async (req, res) => {
 
           if (lang === "ar") {
             lines.push(
-              `\n${idx + 1}) ${labelText}\n${product.name} (${product.brand})\nالمتجر: ${product.store}\nالسعر التقريبي: ${product.priceUSD} ${product.currency}\nالرابط: ${product.url}`
+              `\n${idx + 1}) ${labelText}\n${product.name} (${product.brand})\nالمتجر: ${product.store}\nالسعر التقريبي: ${product.priceUSD} ${product.currency}\nالرابط: https://www.amazon.com`
             );
           } else {
             lines.push(
@@ -584,7 +603,8 @@ app.post("/api/chat/purchases", async (req, res) => {
         });
 
         // نص ديناميكي حسب نوع الخوذة + الاستخدام + نوع الدراجة
-        const helmetText = helmetLabel(result.itemType, lang) || (lang === "ar" ? "خوذة" : "helmet");
+        const helmetText =
+          helmetLabel(result.itemType, lang) || (lang === "ar" ? "خوذة" : "helmet");
         const usageText = usageLabel(result.usage, lang);
         const bikeTypeText = bikeTypeLabel(result.bikeType, lang);
 
@@ -615,8 +635,18 @@ app.post("/api/chat/purchases", async (req, res) => {
           introLine = `Great, I now have a clear understanding of your needs 👌\n${detailSentence}`;
         }
 
-        // نعيد بناء الرد: (نلغي جملة "تقريباً صار عندي صورة واضحة..." القديمة في هذا السيناريو)
-        result.reply = `${introLine}\n\n${lines.join("\n")}`;
+        // إدخال رابط بحث Amazon في أعلى الاقتراحات
+        const amazonLine =
+          amazonSearch && amazonSearch.url
+            ? lang === "ar"
+              ? `🔍 رابط بحث Amazon حسب طلبك:\n${amazonSearch.url}`
+              : `🔍 Amazon search link for your request:\n${amazonSearch.url}`
+            : "";
+
+        result.reply =
+          amazonLine && amazonLine.length
+            ? `${introLine}\n\n${amazonLine}\n\n${lines.join("\n")}`
+            : `${introLine}\n\n${lines.join("\n")}`;
       }
     }
 
@@ -679,6 +709,13 @@ app.post("/api/chat/purchases", async (req, res) => {
               qualityTier: product.qualityTier,
             }))
           : [],
+      amazonSearch:
+        amazonSearch && amazonSearch.url
+          ? {
+              query: amazonSearch.query,
+              url: amazonSearch.url,
+            }
+          : null,
       debug: {
         receivedMessage: message,
         receivedLang: lang,
