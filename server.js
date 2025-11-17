@@ -1,5 +1,5 @@
 // server.js
-// Backend مستقل - بوت رايدر المشتريات (مع MongoDB + ملف مشتريات لكل عميل + ذاكرة قوية)
+// Backend مستقل - بوت رايدر المشتريات (مع MongoDB + ملف مشتريات لكل عميل + ذاكرة قوية + ردود شخصية)
 
 const express = require("express");
 const cors = require("cors");
@@ -128,6 +128,40 @@ function T(lang = "ar") {
       ? "فهمت طلبك بشكل عام، لكن عشان أقدر أساعدك صح، اشرح لي أكثر: هل اللي تحتاجه يندرج تحت معدات السلامة، قطع غيار، أو إكسسوارات للدراجة؟"
       : "I understand your request in general, but to help you properly, please clarify: Is this about safety gear, spare parts, or accessories?",
   };
+}
+
+// helpers لتحويل القيم المختصرة إلى نص عربي
+function helmetLabel(type, lang = "ar") {
+  const isAr = lang === "ar";
+  if (!type) return null;
+  if (type === "helmet-fullface")
+    return isAr ? "خوذة فل فيس" : "full face helmet";
+  if (type === "helmet-openface")
+    return isAr ? "خوذة نص وجه" : "open face helmet";
+  if (type === "helmet-modular")
+    return isAr ? "خوذة موديولار" : "modular helmet";
+  return isAr ? "خوذة" : "helmet";
+}
+
+function usageLabel(usage, lang = "ar") {
+  const isAr = lang === "ar";
+  if (!usage) return null;
+  if (usage === "city") return isAr ? "استخدام مدينة/مشاوير يومية" : "city use";
+  if (usage === "touring") return isAr ? "سفر/هاي وي" : "touring/highway use";
+  if (usage === "adventure")
+    return isAr ? "أدفنشر/اوف رود" : "adventure/off-road use";
+  return usage;
+}
+
+function bikeTypeLabel(bikeType, lang = "ar") {
+  const isAr = lang === "ar";
+  if (!bikeType) return null;
+  if (bikeType === "sport") return isAr ? "دراجة سبورت" : "sport bike";
+  if (bikeType === "cruiser") return isAr ? "دراجة كروزر" : "cruiser";
+  if (bikeType === "scooter") return isAr ? "سكوتر" : "scooter";
+  if (bikeType === "adventure")
+    return isAr ? "دراجة أدفنشر/اوف رود" : "adventure/off-road bike";
+  return bikeType;
 }
 
 // كشف الكاتيجوري من الرسالة أو الـ context
@@ -271,9 +305,9 @@ function detectUsage(message = "", context = {}) {
 // منطق الرد في حالة معدات السلامة
 function handleSafetyFlow(message, lang, context) {
   const t = T(lang);
-  const helmetType = detectHelmetType(message, context);
-  const bikeType = detectBikeType(message, context);
-  const usage = detectUsage(message, context);
+  const helmetType = detectHelmetType(message, context) || context.itemType;
+  const bikeType = detectBikeType(message, context) || context.bikeType;
+  const usage = detectUsage(message, context) || context.usage;
 
   const missing = [];
   if (!helmetType) missing.push("helmetType");
@@ -289,9 +323,34 @@ function handleSafetyFlow(message, lang, context) {
     msg.includes("helmet") ||
     (context.itemType && context.itemType.startsWith("helmet"));
 
-  if (mentionsHelmet) {
-    replyParts.push(t.genericIntro);
+  // جملة شخصية مبنية على الذاكرة
+  const helmetText = helmetLabel(helmetType, lang);
+  const usageText = usageLabel(usage, lang);
+  const bikeTypeText = bikeTypeLabel(bikeType, lang);
 
+  if (helmetText || usageText || bikeTypeText) {
+    let summary = "";
+    if (helmetText) summary += helmetText;
+    if (usageText) {
+      summary += summary ? " للاستخدام " + usageText : usageText;
+    }
+    if (bikeTypeText) {
+      summary += summary ? " وعلى " + bikeTypeText : bikeTypeText;
+    }
+
+    if (summary) {
+      replyParts.push(
+        lang === "ar"
+          ? `مسجّل عندي إنك مهتم بـ ${summary}.`
+          : `I have noted that you're interested in ${summary}.`
+      );
+    }
+  } else {
+    replyParts.push(t.genericIntro);
+  }
+
+  if (mentionsHelmet) {
+    // نسأل فقط عن الناقص
     if (!helmetType) replyParts.push(t.askHelmetType);
     if (!usage) replyParts.push(t.askUsage);
     if (!bikeType) replyParts.push(t.askBikeTypeForSafety);
@@ -326,7 +385,7 @@ function handleSafetyFlow(message, lang, context) {
 function handleSparePartFlow(message, lang, context) {
   const t = T(lang);
 
-  const bikeType = detectBikeType(message, context);
+  const bikeType = detectBikeType(message, context) || context.bikeType;
   const brand = context.bikeBrand || null;
   const model = context.bikeModel || null;
   const year = context.bikeYear || null;
@@ -345,7 +404,7 @@ function handleSparePartFlow(message, lang, context) {
   if (!brand) missing.push("bikeBrand");
   if (!model) missing.push("bikeModel");
   if (!year) missing.push("bikeYear");
-  if (!partName) missing.push("partName");
+  if (!partName) missing.push("partName";
 
   let replyParts = [
     t.welcomeLine,
@@ -371,8 +430,8 @@ function handleSparePartFlow(message, lang, context) {
 function handleAccessoryFlow(message, lang, context) {
   const t = T(lang);
 
-  const usage = detectUsage(message, context);
-  const bikeType = detectBikeType(message, context);
+  const usage = detectUsage(message, context) || context.usage;
+  const bikeType = detectBikeType(message, context) || context.bikeType;
 
   let replyParts = [
     t.welcomeLine,
@@ -425,9 +484,7 @@ app.post("/api/chat/purchases", async (req, res) => {
     const t = T(lang);
     const profileUserId = userId || "guest";
 
-    // =========================
     // 1) جلب ملف المشتريات (ذاكرة قوية)
-    // =========================
     let existingProfile = null;
     let memoryContext = {};
 
@@ -435,9 +492,7 @@ app.post("/api/chat/purchases", async (req, res) => {
       existingProfile = await PurchaseProfile.findOne({ userId: profileUserId });
 
       if (existingProfile) {
-        // تحويل الملف إلى context يُستخدم كـ Default
         memoryContext = {
-          // category / itemType يتم استخدامها فقط إذا لم يحددها الطلب الحالي
           category: existingProfile.lastCategory || undefined,
           itemType: existingProfile.lastItemType || undefined,
           bikeType: existingProfile.preferredBikeType || undefined,
@@ -450,18 +505,13 @@ app.post("/api/chat/purchases", async (req, res) => {
       }
     }
 
-    // =========================
-    // 2) دمج الذاكرة مع الـ context الحالي
-    //    قاعدة: الجديد من الفرونت يغلّب القديم من الذاكرة
-    // =========================
+    // 2) دمج الذاكرة مع الـ context الحالي (الجديد يغلّب القديم)
     const mergedContext = {
       ...memoryContext,
       ...context,
     };
 
-    // =========================
     // 3) تحليل الرسالة باستخدام الـ mergedContext
-    // =========================
     const category = detectCategory(message, mergedContext);
 
     let result;
@@ -483,9 +533,7 @@ app.post("/api/chat/purchases", async (req, res) => {
       };
     }
 
-    // =========================
     // 4) تحديث ملف المشتريات في MongoDB
-    // =========================
     if (MONGODB_URI && mongoose.connection.readyState === 1) {
       const profileUpdate = {
         lastCategory: result.category || existingProfile?.lastCategory || null,
@@ -516,9 +564,7 @@ app.post("/api/chat/purchases", async (req, res) => {
       );
     }
 
-    // =========================
     // 5) إرسال الرد
-    // =========================
     return res.json({
       ok: true,
       botName: t.botName,
