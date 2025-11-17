@@ -1,5 +1,6 @@
 // server.js
-// Backend مستقل - بوت رايدر المشتريات (مع MongoDB + ملف مشتريات لكل عميل + ذاكرة قوية + ردود شخصية)
+// Backend مستقل - بوت رايدر المشتريات
+// MongoDB + ملف مشتريات لكل عميل + ذاكرة قوية + اختيار أفضل 3 منتجات
 
 const express = require("express");
 const cors = require("cors");
@@ -7,6 +8,9 @@ const helmet = require("helmet");
 const morgan = require("morgan");
 const mongoose = require("mongoose");
 require("dotenv").config();
+
+// منطق اختيار المنتجات
+const { selectTop3Products } = require("./logic/productSearch");
 
 const app = express();
 
@@ -85,10 +89,9 @@ app.use(helmet());
 app.use(morgan("dev"));
 
 /* =====================================
-   دوال مساعدة بسيطة للذكاء في الرد
+   دوال مساعدة للترجمة والملصقات
    ===================================== */
 
-// ترجمة ثابتة حسب اللغة
 function T(lang = "ar") {
   const isAr = lang === "ar";
 
@@ -119,7 +122,7 @@ function T(lang = "ar") {
       ? "اكتب المعلومات اللي تعرفها من النقاط اللي فوق، حتى لو ما كانت كاملة، وأنا أرتب لك الخيارات وأبحث عن أفضل موقع مناسب."
       : "Please type the info you know from the points above (even if not complete) and I’ll narrow down the options and find the best site.",
     askAccessory: isAr
-      ? "واضح إنك تدور على إكسسوار للدراجة.\nحاب أعرف نوع الإكسسوار ووين رح يُركّب بالضبط (مثلاً: حامل جوال على المقود، شنطة خلفية، شنطة خزان...)."
+      ? "واضح أنك تدور على إكسسوار للدراجة.\nحاب أعرف نوع الإكسسوار ووين رح يُركّب بالضبط (مثلاً: حامل جوال على المقود، شنطة خلفية، شنطة خزان...)."
       : "It looks like you're looking for an accessory.\nI need to know what type of accessory and where it will be mounted (e.g. phone mount on handlebar, rear bag, tank bag...).",
     accessoryUsage: isAr
       ? "برضه يساعدني أعرف هل الاستخدام أكثر للمدينة، سفر طويل، أو أدفنشر، عشان أوازن بين الراحة والمتانة والسعر."
@@ -167,7 +170,7 @@ function bikeTypeLabel(bikeType, lang = "ar") {
 
 // كشف الكاتيجوري من الرسالة أو الـ context
 function detectCategory(message = "", context = {}) {
-  if (context.category) return context.category; // لو الواجهة أو الذاكرة محددته مسبقاً
+  if (context.category) return context.category;
 
   const msg = message.toLowerCase();
 
@@ -419,9 +422,9 @@ function handleSparePartFlow(message, lang, context) {
     itemType: "spare-part",
     bikeType: bikeType || null,
     bikeBrand: brand,
-    bikeModel: model,
-    bikeYear: year,
-    partName: partName,
+    bikeModel: model || null,
+    bikeYear: year || null,
+    partName: partName || null,
     missingInfo: missing,
     reply: replyParts.join("\n\n"),
   };
@@ -534,7 +537,58 @@ app.post("/api/chat/purchases", async (req, res) => {
       };
     }
 
-    // 4) تحديث ملف المشتريات في MongoDB
+    // 4) لو المعلومات مكتملة لخوذة → نبحث عن أفضل 3 منتجات
+    let productSearch = null;
+    if (
+      result.category === "safety" &&
+      result.itemType &&
+      result.itemType.startsWith("helmet") &&
+      result.usage &&
+      result.bikeType &&
+      result.missingInfo &&
+      result.missingInfo.length === 0
+    ) {
+      productSearch = selectTop3Products({
+        category: "safety",
+        itemType: "helmet-fullface", // حالياً نركز على فل فيس كبداية
+        usage: result.usage,
+        bikeType: result.bikeType,
+      });
+
+      if (productSearch && productSearch.items && productSearch.items.length) {
+        const lines = [];
+        lines.push(
+          lang === "ar"
+            ? "🔍 بناءً على تفضيلاتك، هذه أفضل الخيارات المقترحة:"
+            : "🔍 Based on your preferences, here are the best suggestions:"
+        );
+
+        productSearch.items.forEach(({ label, product }, idx) => {
+          let labelText;
+          if (lang === "ar") {
+            if (label === "cheapest") labelText = "أرخص خيار";
+            else if (label === "best_value") labelText = "أفضل قيمة مقابل السعر";
+            else if (label === "premium") labelText = "أعلى جودة";
+            else labelText = "خيار مقترح";
+          } else {
+            if (label === "cheapest") labelText = "Cheapest option";
+            else if (label === "best_value") labelText = "Best value";
+            else if (label === "premium") labelText = "Top quality";
+            else labelText = "Suggested option";
+          }
+
+          lines.push(
+            lang === "ar"
+              ? `\n${idx + 1}) ${labelText}\n${product.name} (${product.brand})\nالمتجر: ${product.store}\nالسعر التقريبي: ${product.priceUSD} ${product.currency}\nالرابط: ${product.url}`
+              : `\n${idx + 1}) ${labelText}\n${product.name} (${product.brand})\nStore: ${product.store}\nApprox. price: ${product.priceUSD} ${product.currency}\nLink: ${product.url}`
+          );
+        });
+
+        result.reply = `${result.reply}\n\n${lines.join("\n")}`;
+      }
+    }
+
+    // 5) تحديث ملف المشتريات في MongoDB
     if (MONGODB_URI && mongoose.connection.readyState === 1) {
       const profileUpdate = {
         lastCategory: result.category || existingProfile?.lastCategory || null,
@@ -565,7 +619,7 @@ app.post("/api/chat/purchases", async (req, res) => {
       );
     }
 
-    // 5) إرسال الرد
+    // 6) إرسال الرد
     return res.json({
       ok: true,
       botName: t.botName,
@@ -579,6 +633,20 @@ app.post("/api/chat/purchases", async (req, res) => {
       partName: result.partName || null,
       missingInfo: result.missingInfo || [],
       reply: result.reply,
+      products:
+        productSearch && productSearch.items
+          ? productSearch.items.map(({ label, product }) => ({
+              label,
+              id: product.id,
+              name: product.name,
+              brand: product.brand,
+              store: product.store,
+              priceUSD: product.priceUSD,
+              currency: product.currency,
+              url: product.url,
+              qualityTier: product.qualityTier,
+            }))
+          : [],
       debug: {
         receivedMessage: message,
         receivedLang: lang,
