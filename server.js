@@ -1,6 +1,6 @@
 // server.js
 // Backend مستقل - بوت رايدر المشتريات
-// MongoDB + ملف مشتريات لكل عميل + ذاكرة قوية + اختيار أفضل 3 منتجات
+// MongoDB + ملف مشتريات لكل عميل + ذاكرة قوية + اختيار أفضل 3 منتجات + رد ديناميكي
 
 const express = require("express");
 const cors = require("cors");
@@ -537,7 +537,7 @@ app.post("/api/chat/purchases", async (req, res) => {
       };
     }
 
-    // 4) لو المعلومات مكتملة لخوذة → نبحث عن أفضل 3 منتجات
+    // 4) لو المعلومات مكتملة لخوذة → نبحث عن أفضل 3 منتجات ونبني رد ديناميكي
     let productSearch = null;
     if (
       result.category === "safety" &&
@@ -557,11 +557,6 @@ app.post("/api/chat/purchases", async (req, res) => {
 
       if (productSearch && productSearch.items && productSearch.items.length) {
         const lines = [];
-        lines.push(
-          lang === "ar"
-            ? "🔍 بناءً على تفضيلاتك، هذه أفضل الخيارات المقترحة:"
-            : "🔍 Based on your preferences, here are the best suggestions:"
-        );
 
         productSearch.items.forEach(({ label, product }, idx) => {
           let labelText;
@@ -577,14 +572,51 @@ app.post("/api/chat/purchases", async (req, res) => {
             else labelText = "Suggested option";
           }
 
-          lines.push(
-            lang === "ar"
-              ? `\n${idx + 1}) ${labelText}\n${product.name} (${product.brand})\nالمتجر: ${product.store}\nالسعر التقريبي: ${product.priceUSD} ${product.currency}\nالرابط: ${product.url}`
-              : `\n${idx + 1}) ${labelText}\n${product.name} (${product.brand})\nStore: ${product.store}\nApprox. price: ${product.priceUSD} ${product.currency}\nLink: ${product.url}`
-          );
+          if (lang === "ar") {
+            lines.push(
+              `\n${idx + 1}) ${labelText}\n${product.name} (${product.brand})\nالمتجر: ${product.store}\nالسعر التقريبي: ${product.priceUSD} ${product.currency}\nالرابط: ${product.url}`
+            );
+          } else {
+            lines.push(
+              `\n${idx + 1}) ${labelText}\n${product.name} (${product.brand})\nStore: ${product.store}\nApprox. price: ${product.priceUSD} ${product.currency}\nLink: ${product.url}`
+            );
+          }
         });
 
-        result.reply = `${result.reply}\n\n${lines.join("\n")}`;
+        // نص ديناميكي حسب نوع الخوذة + الاستخدام + نوع الدراجة
+        const helmetText = helmetLabel(result.itemType, lang) || (lang === "ar" ? "خوذة" : "helmet");
+        const usageText = usageLabel(result.usage, lang);
+        const bikeTypeText = bikeTypeLabel(result.bikeType, lang);
+
+        let introLine;
+        if (lang === "ar") {
+          let detailParts = [];
+          if (helmetText) detailParts.push(helmetText);
+          if (usageText) detailParts.push(`مناسبة لـ ${usageText}`);
+          if (bikeTypeText) detailParts.push(`على ${bikeTypeText}`);
+
+          const detailSentence =
+            detailParts.length > 0
+              ? `جهّزت لك 3 خيارات ${detailParts.join(" ، ")}، مرتّبة حسب الأفضلية:`
+              : "جهّزت لك 3 خيارات مناسبة، مرتّبة حسب الأفضلية:";
+
+          introLine = `تمام، صار عندي صورة واضحة عن احتياجك 👌\n${detailSentence}`;
+        } else {
+          let detailParts = [];
+          if (helmetText) detailParts.push(helmetText);
+          if (usageText) detailParts.push(`for ${usageText}`);
+          if (bikeTypeText) detailParts.push(`on a ${bikeTypeText}`);
+
+          const detailSentence =
+            detailParts.length > 0
+              ? `I prepared 3 options ${detailParts.join(" ")} ranked for you:`
+              : "I prepared 3 suitable options ranked for you:";
+
+          introLine = `Great, I now have a clear understanding of your needs 👌\n${detailSentence}`;
+        }
+
+        // نعيد بناء الرد: (نلغي جملة "تقريباً صار عندي صورة واضحة..." القديمة في هذا السيناريو)
+        result.reply = `${introLine}\n\n${lines.join("\n")}`;
       }
     }
 
