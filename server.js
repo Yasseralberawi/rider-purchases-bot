@@ -1,5 +1,5 @@
 // server.js
-// Backend مستقل - بوت رايدر المشتريات (مع MongoDB + ملف مشتريات لكل عميل)
+// Backend مستقل - بوت رايدر المشتريات (مع MongoDB + ملف مشتريات لكل عميل + ذاكرة قوية)
 
 const express = require("express");
 const cors = require("cors");
@@ -19,7 +19,9 @@ const PORT = process.env.PORT || 5050;
 const MONGODB_URI = process.env.MONGODB_URI;
 
 if (!MONGODB_URI) {
-  console.warn("⚠️ MONGODB_URI غير موجود في المتغيرات البيئية. الاتصال بقاعدة البيانات لن يعمل.");
+  console.warn(
+    "⚠️ MONGODB_URI غير موجود في المتغيرات البيئية. الاتصال بقاعدة البيانات لن يعمل."
+  );
 } else {
   mongoose
     .connect(MONGODB_URI)
@@ -27,7 +29,10 @@ if (!MONGODB_URI) {
       console.log("✅ متصل بقاعدة بيانات MongoDB بنجاح (رايدر المشتريات).");
     })
     .catch((err) => {
-      console.error("❌ فشل الاتصال بـ MongoDB في رايدر المشتريات:", err.message);
+      console.error(
+        "❌ فشل الاتصال بـ MongoDB في رايدر المشتريات:",
+        err.message
+      );
     });
 }
 
@@ -127,7 +132,7 @@ function T(lang = "ar") {
 
 // كشف الكاتيجوري من الرسالة أو الـ context
 function detectCategory(message = "", context = {}) {
-  if (context.category) return context.category; // لو الواجهة محددته مسبقاً
+  if (context.category) return context.category; // لو الواجهة أو الذاكرة محددته مسبقاً
 
   const msg = message.toLowerCase();
 
@@ -207,11 +212,7 @@ function detectHelmetType(message = "", context = {}) {
   if (msg.includes("موديولار") || msg.includes("modular"))
     return "helmet-modular";
 
-  if (msg.includes("helmet")) {
-    // خوذة بدون تحديد نوع
-    return null;
-  }
-
+  if (msg.includes("helmet")) return null;
   if (msg.includes("خوذة") || msg.includes("خودة")) return null;
 
   return null;
@@ -267,7 +268,7 @@ function detectUsage(message = "", context = {}) {
   return null;
 }
 
-// منطق الرد في حالة معدات السلامة (خوذة / جاكيت ...الخ)
+// منطق الرد في حالة معدات السلامة
 function handleSafetyFlow(message, lang, context) {
   const t = T(lang);
   const helmetType = detectHelmetType(message, context);
@@ -346,7 +347,12 @@ function handleSparePartFlow(message, lang, context) {
   if (!year) missing.push("bikeYear");
   if (!partName) missing.push("partName");
 
-  let replyParts = [t.welcomeLine, t.genericIntro, t.askSparePartCore, t.sparePartNextStep];
+  let replyParts = [
+    t.welcomeLine,
+    t.genericIntro,
+    t.askSparePartCore,
+    t.sparePartNextStep,
+  ];
 
   return {
     category: "spare-part",
@@ -368,7 +374,12 @@ function handleAccessoryFlow(message, lang, context) {
   const usage = detectUsage(message, context);
   const bikeType = detectBikeType(message, context);
 
-  let replyParts = [t.welcomeLine, t.genericIntro, t.askAccessory, t.accessoryUsage];
+  let replyParts = [
+    t.welcomeLine,
+    t.genericIntro,
+    t.askAccessory,
+    t.accessoryUsage,
+  ];
 
   const missing = [];
   if (!usage) missing.push("usage");
@@ -412,48 +423,81 @@ app.post("/api/chat/purchases", async (req, res) => {
     }
 
     const t = T(lang);
-    const category = detectCategory(message, context);
+    const profileUserId = userId || "guest";
+
+    // =========================
+    // 1) جلب ملف المشتريات (ذاكرة قوية)
+    // =========================
+    let existingProfile = null;
+    let memoryContext = {};
+
+    if (MONGODB_URI && mongoose.connection.readyState === 1) {
+      existingProfile = await PurchaseProfile.findOne({ userId: profileUserId });
+
+      if (existingProfile) {
+        // تحويل الملف إلى context يُستخدم كـ Default
+        memoryContext = {
+          // category / itemType يتم استخدامها فقط إذا لم يحددها الطلب الحالي
+          category: existingProfile.lastCategory || undefined,
+          itemType: existingProfile.lastItemType || undefined,
+          bikeType: existingProfile.preferredBikeType || undefined,
+          usage: existingProfile.lastUsage || undefined,
+          bikeBrand: existingProfile.lastBikeBrand || undefined,
+          bikeModel: existingProfile.lastBikeModel || undefined,
+          bikeYear: existingProfile.lastBikeYear || undefined,
+          partName: existingProfile.lastPartName || undefined,
+        };
+      }
+    }
+
+    // =========================
+    // 2) دمج الذاكرة مع الـ context الحالي
+    //    قاعدة: الجديد من الفرونت يغلّب القديم من الذاكرة
+    // =========================
+    const mergedContext = {
+      ...memoryContext,
+      ...context,
+    };
+
+    // =========================
+    // 3) تحليل الرسالة باستخدام الـ mergedContext
+    // =========================
+    const category = detectCategory(message, mergedContext);
 
     let result;
 
     if (category === "safety") {
-      result = handleSafetyFlow(message, lang, context);
+      result = handleSafetyFlow(message, lang, mergedContext);
     } else if (category === "spare-part") {
-      result = handleSparePartFlow(message, lang, context);
+      result = handleSparePartFlow(message, lang, mergedContext);
     } else if (category === "accessory") {
-      result = handleAccessoryFlow(message, lang, context);
+      result = handleAccessoryFlow(message, lang, mergedContext);
     } else {
       result = {
         category: null,
         itemType: null,
-        bikeType: null,
-        usage: null,
+        bikeType: mergedContext.bikeType || null,
+        usage: mergedContext.usage || null,
         missingInfo: ["category"],
         reply: `${t.welcomeLine}\n\n${t.genericIntro}\n\n${t.fallback}`,
       };
     }
 
     // =========================
-    // تخزين ملف المشتريات في MongoDB
+    // 4) تحديث ملف المشتريات في MongoDB
     // =========================
     if (MONGODB_URI && mongoose.connection.readyState === 1) {
-      const profileUserId = userId || "guest";
-
       const profileUpdate = {
-        lastCategory: result.category || null,
-        lastItemType: result.itemType || null,
-        lastBikeBrand: result.bikeBrand || null,
-        lastBikeModel: result.bikeModel || null,
-        lastBikeYear: result.bikeYear || null,
-        lastPartName: result.partName || null,
+        lastCategory: result.category || existingProfile?.lastCategory || null,
+        lastItemType: result.itemType || existingProfile?.lastItemType || null,
+        lastBikeBrand: result.bikeBrand || existingProfile?.lastBikeBrand || null,
+        lastBikeModel: result.bikeModel || existingProfile?.lastBikeModel || null,
+        lastBikeYear: result.bikeYear || existingProfile?.lastBikeYear || null,
+        lastPartName: result.partName || existingProfile?.lastPartName || null,
+        preferredBikeType:
+          result.bikeType || existingProfile?.preferredBikeType || null,
+        lastUsage: result.usage || existingProfile?.lastUsage || null,
       };
-
-      if (result.bikeType) {
-        profileUpdate.preferredBikeType = result.bikeType;
-      }
-      if (result.usage) {
-        profileUpdate.lastUsage = result.usage;
-      }
 
       await PurchaseProfile.findOneAndUpdate(
         { userId: profileUserId },
@@ -470,16 +514,11 @@ app.post("/api/chat/purchases", async (req, res) => {
         },
         { upsert: true, new: true }
       );
-    } else {
-      if (!MONGODB_URI) {
-        console.warn("⚠️ لم يتم تخزين الملف لأن MONGODB_URI غير مضبوط.");
-      } else {
-        console.warn(
-          "⚠️ لم يتم تخزين الملف لأن اتصال MongoDB غير جاهز (readyState != 1)."
-        );
-      }
     }
 
+    // =========================
+    // 5) إرسال الرد
+    // =========================
     return res.json({
       ok: true,
       botName: t.botName,
@@ -496,8 +535,9 @@ app.post("/api/chat/purchases", async (req, res) => {
       debug: {
         receivedMessage: message,
         receivedLang: lang,
-        receivedUserId: userId || null,
+        receivedUserId: profileUserId,
         receivedContext: context || null,
+        mergedContextFromMemory: memoryContext,
         detectedCategory: category,
       },
     });
