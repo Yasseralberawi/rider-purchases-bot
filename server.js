@@ -1,6 +1,6 @@
 // server.js
 // Backend مستقل - بوت رايدر المشتريات
-// MongoDB + ملف مشتريات لكل عميل + ذاكرة قوية + اختيار أفضل 3 منتجات + رد ديناميكي + رابط بحث Amazon
+// MongoDB + ملف مشتريات لكل عميل + ذاكرة قوية + اختيار أفضل المنتجات + رابط بحث Amazon
 
 const express = require("express");
 const cors = require("cors");
@@ -9,9 +9,9 @@ const morgan = require("morgan");
 const mongoose = require("mongoose");
 require("dotenv").config();
 
-// منطق اختيار المنتجات من القائمة الداخلية
-const { selectTop3Products } = require("./logic/productSearch");
-// خدمة بناء رابط بحث Amazon حسب السياق
+// منطق اختيار المنتجات من القائمة الداخلية (خوذة + جاكيت حالياً)
+const { searchProducts } = require("./logic/productSearch");
+// خدمة بناء رابط بحث Amazon حسب السياق (تستخدم الـ Affiliate Tag)
 const {
   buildAmazonSearchLinkFromContext,
 } = require("./services/amazonSearch");
@@ -56,7 +56,7 @@ const purchaseProfileSchema = new mongoose.Schema(
     lastUsage: { type: String, default: null }, // city / touring / adventure
 
     lastCategory: { type: String, default: null }, // safety / spare-part / accessory
-    lastItemType: { type: String, default: null }, // helmet-fullface / spare-part / accessory-xxx
+    lastItemType: { type: String, default: null }, // helmet-fullface / jacket / spare-part / accessory-xxx
 
     lastBikeBrand: { type: String, default: null },
     lastBikeModel: { type: String, default: null },
@@ -184,6 +184,8 @@ function detectCategory(message = "", context = {}) {
     "helmet",
     "جاكيت",
     "jacket",
+    "جاكيت حماية",
+    "jacket protection",
     "قفازات",
     "قلفز",
     "gloves",
@@ -310,29 +312,56 @@ function detectUsage(message = "", context = {}) {
   return null;
 }
 
-// منطق الرد في حالة معدات السلامة
+// منطق الرد في حالة معدات السلامة (خوذة + جاكيت)
 function handleSafetyFlow(message, lang, context) {
   const t = T(lang);
-  const helmetType = detectHelmetType(message, context) || context.itemType;
-  const bikeType = detectBikeType(message, context) || context.bikeType;
-  const usage = detectUsage(message, context) || context.usage;
-
-  const missing = [];
-  if (!helmetType) missing.push("helmetType");
-  if (!usage) missing.push("usage");
-  if (!bikeType) missing.push("bikeType");
-
-  let replyParts = [t.welcomeLine];
 
   const msg = message.toLowerCase();
+
+  const helmetTypeDetected = detectHelmetType(message, context);
   const mentionsHelmet =
     msg.includes("خوذة") ||
     msg.includes("خودة") ||
     msg.includes("helmet") ||
     (context.itemType && context.itemType.startsWith("helmet"));
 
+  const mentionsJacket =
+    msg.includes("جاكيت") ||
+    msg.includes("jacket") ||
+    msg.includes("جاكيت حماية");
+
+  // تحديد نوع القطعة: خوذة أو جاكيت
+  let itemType = context.itemType || null;
+  if (helmetTypeDetected) {
+    itemType = helmetTypeDetected;
+  } else if (!itemType && mentionsJacket) {
+    itemType = "jacket";
+  }
+
+  const bikeType = detectBikeType(message, context) || context.bikeType;
+  const usage = detectUsage(message, context) || context.usage;
+
+  const missing = [];
+
+  // نحتاج دائماً usage + bikeType للسلامة
+  if (!usage) missing.push("usage");
+  if (!bikeType) missing.push("bikeType");
+
+  // لو خوذة والـ type غير محدد بوضوح
+  if (
+    (!helmetTypeDetected && mentionsHelmet) ||
+    (itemType && itemType === "helmet-unknown")
+  ) {
+    missing.push("helmetType");
+  }
+
+  let replyParts = [t.welcomeLine];
+
   // جملة شخصية مبنية على الذاكرة
-  const helmetText = helmetLabel(helmetType, lang);
+  const helmetText =
+    itemType && itemType.startsWith("helmet")
+      ? helmetLabel(itemType, lang)
+      : null;
   const usageText = usageLabel(usage, lang);
   const bikeTypeText = bikeTypeLabel(bikeType, lang);
 
@@ -358,8 +387,8 @@ function handleSafetyFlow(message, lang, context) {
   }
 
   if (mentionsHelmet) {
-    // نسأل فقط عن الناقص
-    if (!helmetType) replyParts.push(t.askHelmetType);
+    // خوذة: نسأل عن النوع + الاستخدام + نوع الدراجة
+    if (!helmetTypeDetected && !context.itemType) replyParts.push(t.askHelmetType);
     if (!usage) replyParts.push(t.askUsage);
     if (!bikeType) replyParts.push(t.askBikeTypeForSafety);
 
@@ -367,11 +396,25 @@ function handleSafetyFlow(message, lang, context) {
       replyParts.push(
         t.safetyAlmostReady +
           (lang === "ar"
-            ? "\nبعدها أقدر أجهز لك ترشيحات وروابط لأفضل الأسعار."
-            : "\nThen I can prepare recommendations and links with the best prices.")
+            ? "\nبعدها أقدر أجهز لك ترشيحات خوذات وروابط لأفضل الأسعار."
+            : "\nThen I can prepare helmet recommendations and best-price links.")
+      );
+    }
+  } else if (mentionsJacket) {
+    // جاكيت حماية: نسأل عن الاستخدام + نوع الدراجة
+    if (!usage) replyParts.push(t.askUsage);
+    if (!bikeType) replyParts.push(t.askBikeTypeForSafety);
+
+    if (missing.length === 0) {
+      replyParts.push(
+        t.safetyAlmostReady +
+          (lang === "ar"
+            ? "\nبعدها أقدر أجهز لك ترشيحات جاكيتات حماية وروابط لأفضل الأسعار."
+            : "\nThen I can prepare jacket recommendations and best-price links.")
       );
     }
   } else {
+    // معدات سلامة عامة
     replyParts.push(
       lang === "ar"
         ? "واضح أنك تبحث عن معدات سلامة للدراجة (مثل خوذة، جاكيت، قفازات أو غيرها).\nحدد لي أكثر: شو نوع القطعة اللي في بالك؟"
@@ -381,7 +424,9 @@ function handleSafetyFlow(message, lang, context) {
 
   return {
     category: "safety",
-    itemType: helmetType || (mentionsHelmet ? "helmet-unknown" : null),
+    itemType:
+      itemType ||
+      (mentionsHelmet ? "helmet-unknown" : mentionsJacket ? "jacket" : null),
     bikeType: bikeType || null,
     usage: usage || null,
     missingInfo: missing,
@@ -541,112 +586,124 @@ app.post("/api/chat/purchases", async (req, res) => {
       };
     }
 
-    // 4) لو المعلومات مكتملة لخوذة → نبحث عن أفضل 3 منتجات ونبني رد ديناميكي + رابط Amazon
+    // 4) لو المعلومات مكتملة لخوذة أو جاكيت → نبحث عن منتجات + رابط Amazon
     let productSearch = null;
     let amazonSearch = null;
 
     if (
       result.category === "safety" &&
-      result.itemType &&
-      result.itemType.startsWith("helmet") &&
       result.usage &&
       result.bikeType &&
       result.missingInfo &&
-      result.missingInfo.length === 0
+      result.missingInfo.length === 0 &&
+      result.itemType
     ) {
-      // 🔹 توليد رابط بحث Amazon مبني على السياق
-      amazonSearch = buildAmazonSearchLinkFromContext({
-        category: result.category,
-        itemType: result.itemType,
-        usage: result.usage,
-        bikeType: result.bikeType,
-        brand: result.bikeBrand,
-        model: result.bikeModel,
-        partName: result.partName,
-        lang,
-      });
+      let productCategory = null;
 
-      // 🔹 استخدام القائمة الداخلية لاختيار 3 منتجات (LS2 / HJC / Shoei ...)
-      productSearch = selectTop3Products({
-        category: "safety",
-        itemType: "helmet-fullface", // حالياً نركز على فل فيس كبداية
-        usage: result.usage,
-        bikeType: result.bikeType,
-      });
+      if (result.itemType.startsWith("helmet")) {
+        productCategory = "helmet-fullface";
+      } else if (result.itemType === "jacket") {
+        productCategory = "jacket";
+      }
 
-      if (productSearch && productSearch.items && productSearch.items.length) {
-        const lines = [];
-
-        productSearch.items.forEach(({ label, product }, idx) => {
-          let labelText;
-          if (lang === "ar") {
-            if (label === "cheapest") labelText = "أرخص خيار";
-            else if (label === "best_value") labelText = "أفضل قيمة مقابل السعر";
-            else if (label === "premium") labelText = "أعلى جودة";
-            else labelText = "خيار مقترح";
-          } else {
-            if (label === "cheapest") labelText = "Cheapest option";
-            else if (label === "best_value") labelText = "Best value";
-            else if (label === "premium") labelText = "Top quality";
-            else labelText = "Suggested option";
-          }
-
-          if (lang === "ar") {
-            lines.push(
-              `\n${idx + 1}) ${labelText}\n${product.name} (${product.brand})\nالمتجر: ${product.store}\nالسعر التقريبي: ${product.priceUSD} ${product.currency}\nالرابط: ${product.url}`
-            );
-          } else {
-            lines.push(
-              `\n${idx + 1}) ${labelText}\n${product.name} (${product.brand})\nStore: ${product.store}\nApprox. price: ${product.priceUSD} ${product.currency}\nLink: ${product.url}`
-            );
-          }
+      if (productCategory) {
+        // 🔹 رابط بحث Amazon حسب السياق
+        amazonSearch = buildAmazonSearchLinkFromContext({
+          category: result.category,
+          itemType: result.itemType,
+          usage: result.usage,
+          bikeType: result.bikeType,
+          brand: result.bikeBrand,
+          model: result.bikeModel,
+          partName: result.partName,
+          lang,
         });
 
-        // نص ديناميكي حسب نوع الخوذة + الاستخدام + نوع الدراجة
-        const helmetText =
-          helmetLabel(result.itemType, lang) || (lang === "ar" ? "خوذة" : "helmet");
-        const usageText = usageLabel(result.usage, lang);
-        const bikeTypeText = bikeTypeLabel(result.bikeType, lang);
+        // 🔹 بحث في القائمة الداخلية (خوذة أو جاكيت)
+        productSearch = searchProducts({
+          category: productCategory,
+          usage: result.usage,
+          bikeType: result.bikeType,
+        });
 
-        let introLine;
-        if (lang === "ar") {
+        if (
+          productSearch &&
+          productSearch.results &&
+          productSearch.results.length
+        ) {
+          const lines = [];
+
+          productSearch.results.forEach((product, idx) => {
+            let labelText;
+            if (lang === "ar") {
+              if (product.label === "cheapest") labelText = "أرخص خيار";
+              else if (product.label === "best_value")
+                labelText = "أفضل قيمة مقابل السعر";
+              else if (product.label === "premium") labelText = "أعلى جودة";
+              else labelText = "خيار مقترح";
+            } else {
+              if (product.label === "cheapest") labelText = "Cheapest option";
+              else if (product.label === "best_value") labelText = "Best value";
+              else if (product.label === "premium") labelText = "Top quality";
+              else labelText = "Suggested option";
+            }
+
+            if (lang === "ar") {
+              lines.push(
+                `\n${idx + 1}) ${labelText}\n${product.name} (${product.brand})\nالمتجر: ${product.store}\nالسعر التقريبي: ${product.priceUSD} ${product.currency}\nالرابط: ${product.url}`
+              );
+            } else {
+              lines.push(
+                `\n${idx + 1}) ${labelText}\n${product.name} (${product.brand})\nStore: ${product.store}\nApprox. price: ${product.priceUSD} ${product.currency}\nLink: ${product.url}`
+              );
+            }
+          });
+
+          const usageText = usageLabel(result.usage, lang);
+          const bikeTypeText = bikeTypeLabel(result.bikeType, lang);
+
+          let itemText;
+          if (productCategory === "helmet-fullface") {
+            itemText =
+              helmetLabel(result.itemType, lang) ||
+              (lang === "ar" ? "خوذة" : "helmet");
+          } else if (productCategory === "jacket") {
+            itemText =
+              lang === "ar" ? "جاكيت حماية" : "riding jacket";
+          }
+
           let detailParts = [];
-          if (helmetText) detailParts.push(helmetText);
-          if (usageText) detailParts.push(`مناسبة لـ ${usageText}`);
-          if (bikeTypeText) detailParts.push(`على ${bikeTypeText}`);
+          if (itemText) detailParts.push(itemText);
+          if (usageText) detailParts.push(lang === "ar" ? `مناسبة لـ ${usageText}` : `for ${usageText}`);
+          if (bikeTypeText) detailParts.push(lang === "ar" ? `على ${bikeTypeText}` : `on a ${bikeTypeText}`);
 
-          const detailSentence =
-            detailParts.length > 0
-              ? `جهّزت لك 3 خيارات ${detailParts.join(" ، ")}، مرتّبة حسب الأفضلية:`
-              : "جهّزت لك 3 خيارات مناسبة، مرتّبة حسب الأفضلية:";
+          let introLine;
+          if (lang === "ar") {
+            const detailSentence =
+              detailParts.length > 0
+                ? `جهّزت لك 3 خيارات ${detailParts.join(" ، ")}, مرتّبة حسب الأفضلية:`
+                : "جهّزت لك 3 خيارات مناسبة، مرتّبة حسب الأفضلية:";
+            introLine = `تمام، صار عندي صورة واضحة عن احتياجك 👌\n${detailSentence}`;
+          } else {
+            const detailSentence =
+              detailParts.length > 0
+                ? `I prepared 3 options ${detailParts.join(" ")} ranked for you:`
+                : "I prepared 3 suitable options ranked for you:";
+            introLine = `Great, I now have a clear understanding of your needs 👌\n${detailSentence}`;
+          }
 
-          introLine = `تمام، صار عندي صورة واضحة عن احتياجك 👌\n${detailSentence}`;
-        } else {
-          let detailParts = [];
-          if (helmetText) detailParts.push(helmetText);
-          if (usageText) detailParts.push(`for ${usageText}`);
-          if (bikeTypeText) detailParts.push(`on a ${bikeTypeText}`);
+          const amazonLine =
+            amazonSearch && amazonSearch.url
+              ? lang === "ar"
+                ? `🔍 رابط بحث Amazon حسب طلبك:\n${amazonSearch.url}`
+                : `🔍 Amazon search link for your request:\n${amazonSearch.url}`
+              : "";
 
-          const detailSentence =
-            detailParts.length > 0
-              ? `I prepared 3 options ${detailParts.join(" ")} ranked for you:`
-              : "I prepared 3 suitable options ranked for you:";
-
-          introLine = `Great, I now have a clear understanding of your needs 👌\n${detailSentence}`;
+          result.reply =
+            amazonLine && amazonLine.length
+              ? `${introLine}\n\n${amazonLine}\n\n${lines.join("\n")}`
+              : `${introLine}\n\n${lines.join("\n")}`;
         }
-
-        // إدخال رابط بحث Amazon في أعلى الاقتراحات
-        const amazonLine =
-          amazonSearch && amazonSearch.url
-            ? lang === "ar"
-              ? `🔍 رابط بحث Amazon حسب طلبك:\n${amazonSearch.url}`
-              : `🔍 Amazon search link for your request:\n${amazonSearch.url}`
-            : "";
-
-        result.reply =
-          amazonLine && amazonLine.length
-            ? `${introLine}\n\n${amazonLine}\n\n${lines.join("\n")}`
-            : `${introLine}\n\n${lines.join("\n")}`;
       }
     }
 
@@ -696,18 +753,8 @@ app.post("/api/chat/purchases", async (req, res) => {
       missingInfo: result.missingInfo || [],
       reply: result.reply,
       products:
-        productSearch && productSearch.items
-          ? productSearch.items.map(({ label, product }) => ({
-              label,
-              id: product.id,
-              name: product.name,
-              brand: product.brand,
-              store: product.store,
-              priceUSD: product.priceUSD,
-              currency: product.currency,
-              url: product.url,
-              qualityTier: product.qualityTier,
-            }))
+        productSearch && productSearch.results
+          ? productSearch.results
           : [],
       amazonSearch:
         amazonSearch && amazonSearch.url
