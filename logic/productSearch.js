@@ -1,6 +1,6 @@
 // ============================================================
 //  Rider Purchases Bot – Product Search Logic (Full File)
-//  Helmets + Jackets + Gloves + Boots
+//  Helmets + Jackets + Gloves + Boots + Accessories (NEW)
 // ============================================================
 
 // Helper: Amazon search URL with affiliate tag
@@ -225,11 +225,58 @@ function buildBootsQuery(context) {
 }
 
 // ============================================================
-// 🔍 5) Main Router – Detect Product Category (optional helper)
+// 🎒 5) Accessories Logic (NEW)
+// ============================================================
+
+// Detect from message if user wants accessories
+function detectAccessoryCategory(message) {
+  message = (message || "").toLowerCase();
+
+  if (
+    message.includes("اكسسوار") ||
+    message.includes("إكسسوار") ||
+    message.includes("شنطة") ||
+    message.includes("حامل") ||
+    message.includes("cover") ||
+    message.includes("windshield") ||
+    message.includes("crash") ||
+    message.includes("usb") ||
+    message.includes("حماية") ||
+    message.includes("اكسسوارات") ||
+    message.includes("accessory") ||
+    message.includes("accessories")
+  ) {
+    return "accessory";
+  }
+
+  return null;
+}
+
+function buildAccessoryQuery(context) {
+  const type = context.accessoryType || "motorcycle accessory";
+  const bikeType = context.bikeType || "";
+  const usage = context.usage || "";
+
+  const q = `motorcycle ${type} ${usage} ${bikeType}`;
+
+  return {
+    query: q.trim(),
+    url: buildAmazonSearchUrl(q),
+    category: "accessory",
+    results: [],
+  };
+}
+
+// ============================================================
+// 🔍 6) Main Router – Detect Product Category
 // ============================================================
 
 function detectProductCategory(message) {
   message = (message || "").toLowerCase();
+
+  // Accessories (NEW)
+  const acc = detectAccessoryCategory(message);
+  if (acc) return acc;
 
   // Helmets
   if (
@@ -274,7 +321,7 @@ function detectProductCategory(message) {
 }
 
 // ============================================================
-// 🚀 6) Exported Search Entry
+// 🚀 7) Exported Search Entry
 // ============================================================
 
 function searchProducts(context) {
@@ -294,6 +341,10 @@ function searchProducts(context) {
 
   if (cat === "boots") {
     return buildBootsQuery(context);
+  }
+
+  if (cat === "accessory") {
+    return buildAccessoryQuery(context);
   }
 
   return null;
