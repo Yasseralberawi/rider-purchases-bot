@@ -20,7 +20,6 @@ const app = express();
 
 // إعدادات أساسية
 const PORT = process.env.PORT || 5050;
-console.log("ℹ️ Rider Purchases Bot starting on PORT =", PORT);
 
 // ==============================
 // اتصال MongoDB
@@ -176,9 +175,7 @@ function bikeTypeLabel(bikeType, lang = "ar") {
 
 // كشف الكاتيجوري من الرسالة أو الـ context
 function detectCategory(message = "", context = {}) {
-  if (context.category) return context.category;
-
-  const msg = message.toLowerCase();
+  const msg = (message || "").toLowerCase();
 
   const safetyWords = [
     "خوذة",
@@ -239,9 +236,13 @@ function detectCategory(message = "", context = {}) {
 
   const has = (list) => list.some((w) => msg.includes(w));
 
+  // ✅ أولاً: نفهم من الرسالة الحالية
   if (has(safetyWords)) return "safety";
   if (has(spareWords)) return "spare-part";
   if (has(accessoryWords)) return "accessory";
+
+  // ✅ ثانياً: لو ما فهمنا شيء من الرسالة نرجع للي في الذاكرة (context)
+  if (context.category) return context.category;
 
   return null;
 }
@@ -990,8 +991,6 @@ app.post("/api/chat/purchases", async (req, res) => {
    تشغيل السيرفر
    ========================= */
 
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(
-    `🚀 Rider Purchases Bot running on port ${PORT} (bound on 0.0.0.0)`
-  );
+app.listen(PORT, () => {
+  console.log(`🚀 Rider Purchases Bot running on port ${PORT}`);
 });
