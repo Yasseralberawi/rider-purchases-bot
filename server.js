@@ -1,5 +1,5 @@
 // server.js
-// Backend مستقل - بوت رايدر المشتريات (نسخة V2)
+// Backend مستقل - بوت رايدر المشتريات (نسخة V2.1)
 // MongoDB + ملف مشتريات لكل عميل + أسئلة محترفة + رابط بحث Amazon مخصص
 
 const express = require("express");
@@ -116,14 +116,14 @@ function T(lang = "ar") {
       ? "عشان أقدر أجيب لك رابط لقطعة غيار مضبوط قدر الإمكان، اكتب لي في *رسالة واحدة*:\n1) نوع الدراجة (سبورت / كروزر / سكوتر / أدفنشر)\n2) ماركة الدراجة (Yamaha, Honda, BMW, KTM ...)\n3) موديل الدراجة (R3, CBR500 ...)\n4) سنة الموديل\n5) اسم القطعة أو وصفها (مثال: تيل فرامل أمامي، فلتر زيت، جنزير، سلايدر...)."
       : "To get you the best possible spare-part search link, send in *one message*:\n1) Bike type\n2) Brand\n3) Model\n4) Model year\n5) Part name or description.",
     notEnoughInfoSafety: isAr
-      ? "فهمت إنك تسأل عن معدات سلامة، لكن المعلومات لسه ناقصة عشان أضبط لك رابط واحد مضبوط.\n\n"
-      : "I understand you’re asking about safety gear, but I still don’t have enough info to build a precise link.\n\n",
+      ? "فهمت إنك تسأل عن معدات سلامة، لكن محتاج تفاصيل أكثر شوي عشان أضبط لك رابط واضح ومفيد."
+      : "I understand you’re asking about safety gear, but I need a bit more detail to build a clear, useful link.",
     notEnoughInfoAccessory: isAr
-      ? "فهمت إنك تحتاج إكسسوارات، لكن لسه التفاصيل ناقصة شوي عشان أضبط لك رابط واحد مضبوط.\n\n"
-      : "I see you need accessories, but I need a bit more detail to build a precise link.\n\n",
+      ? "فهمت إنك تحتاج إكسسوارات، لكن لسه التفاصيل ناقصة شوي عشان أضبط لك رابط واحد مضبوط."
+      : "I see you need accessories, but I need a bit more detail to build a precise link.",
     notEnoughInfoSpare: isAr
-      ? "فهمت إنك تحتاج قطعة غيار، لكن لسه البيانات ناقصة عشان أضبط لك رابط مضبوط لموديل دراجتك.\n\n"
-      : "I see you need a spare part, but I’m still missing info to build a precise link for your bike.\n\n",
+      ? "فهمت إنك تحتاج قطعة غيار، لكن لسه البيانات ناقصة عشان أضبط لك رابط مضبوط لموديل دراجتك."
+      : "I see you need a spare part, but I’m still missing info to build a precise link for your bike.",
     fallback: isAr
       ? "فهمت طلبك بشكل عام، لكن عشان أقدر أساعدك صح، وضّح لي: هل تبحث عن معدات سلامة، قطع غيار، أم إكسسوارات للدراجة؟"
       : "I get your request in general, but to help properly, tell me whether you’re asking about safety gear, spare parts, or accessories.",
@@ -298,7 +298,6 @@ function detectCategory(message = "", context = {}) {
   if (has(spareWords)) return "spare-part";
   if (has(accessoryWords)) return "accessory";
 
-  // لو ما قدر يحدد من الرسالة، ممكن يستخدم الكاتيجوري القادم من الواجهة (لو تم تمريره صراحة)
   if (context && context.category) return context.category;
 
   return null;
@@ -403,33 +402,29 @@ function handleSafetyFlow(message, lang, context = {}) {
   const bikeType = detectBikeType(message) || null;
   const gearBrand = detectGearBrand(message);
 
-  const missingInfo = [];
-  if (!itemType) missingInfo.push("itemType");
-  if (!usage) missingInfo.push("usage");
-  if (!bikeType) missingInfo.push("bikeType");
-
-  // لو المعلومات غير كافية → أسلوب المستشار (طلب تفاصيل في رسالة واحدة)
-  if (missingInfo.length > 0) {
+  // ✅ لو ما عرفنا نوع القطعة نهائياً → نطلب تفاصيل (الرسالة الأولى مثلاً: "محتاج خوذة")
+  if (!itemType) {
     const intro =
       lang === "ar"
         ? `${t.welcomeLine}\n\n${t.notEnoughInfoSafety}`
         : `${t.welcomeLine}\n\n${t.notEnoughInfoSafety}`;
+
     return {
       category: "safety",
-      itemType,
+      itemType: null,
       bikeType,
       bikeBrand: gearBrand || null,
       bikeModel: null,
       bikeYear: null,
       usage,
       partName: null,
-      missingInfo,
+      missingInfo: ["itemType"],
       amazonSearch: null,
-      reply: intro + t.proSafetyAsk,
+      reply: intro + "\n\n" + t.proSafetyAsk,
     };
   }
 
-  // لو المعلومات الأساسية كافية → نبني رابط Amazon مخصص
+  // ✅ هنا نعتبر إن الرسالة فيها معلومات كافية مبدئياً ونبني رابط أمازون حسب ما نقدر نستخرجه
   const amazonSearch = buildAmazonSearchLinkFromContext({
     category: "safety",
     itemType,
@@ -490,7 +485,7 @@ function handleSafetyFlow(message, lang, context = {}) {
     bikeYear: null,
     usage,
     partName: null,
-    missingInfo,
+    missingInfo: [],
     amazonSearch: amazonSearch || null,
     reply: `${t.welcomeLine}\n\n${summaryLine}${amazonLine}`,
   };
@@ -546,7 +541,7 @@ function handleSparePartFlow(message, lang, context = {}) {
       partName,
       missingInfo,
       amazonSearch: null,
-      reply: intro + t.proSpareAsk,
+      reply: intro + "\n\n" + t.proSpareAsk,
     };
   }
 
@@ -589,7 +584,7 @@ function handleSparePartFlow(message, lang, context = {}) {
     bikeYear,
     usage: null,
     partName,
-    missingInfo,
+    missingInfo: [],
     amazonSearch: amazonSearch || null,
     reply: `${t.welcomeLine}\n\n${header}${amazonLine}`,
   };
@@ -642,7 +637,7 @@ function handleAccessoryFlow(message, lang, context = {}) {
       partName: accessoryName,
       missingInfo,
       amazonSearch: null,
-      reply: intro + t.proAccessoryAsk,
+      reply: intro + "\n\n" + t.proAccessoryAsk,
     };
   }
 
@@ -694,7 +689,7 @@ function handleAccessoryFlow(message, lang, context = {}) {
     bikeYear: null,
     usage,
     partName: accessoryName,
-    missingInfo,
+    missingInfo: [],
     amazonSearch: amazonSearch || null,
     reply: `${t.welcomeLine}\n\n${header}${amazonLine}`,
   };
@@ -730,7 +725,7 @@ app.post("/api/chat/purchases", async (req, res) => {
     const t = T(lang);
     const profileUserId = userId || "guest";
 
-    // 1) جلب ملف المشتريات (للتاريخ فقط، مش لاستخدامه بقوة في المنطق)
+    // 1) جلب ملف المشتريات (تاريخ فقط)
     let existingProfile = null;
     if (MONGODB_URI && mongoose.connection.readyState === 1) {
       existingProfile = await PurchaseProfile.findOne({ userId: profileUserId });
