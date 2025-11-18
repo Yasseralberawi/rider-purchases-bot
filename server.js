@@ -364,7 +364,7 @@ function handleSafetyFlow(message, lang, context) {
   if (!usage) missing.push("usage");
   if (!bikeType) missing.push("bikeType");
 
-  // لو خوذة والـ type غير محدد بوضوح
+  // لو خوذة والـ type غير محدد بوضوح (نستخدمه فقط للمساعدة في الأسئلة، لكن ما نمنع الترشيحات لاحقاً)
   if (
     (!helmetTypeDetected && mentionsHelmet) ||
     (itemType && itemType === "helmet-unknown")
@@ -694,17 +694,17 @@ app.post("/api/chat/purchases", async (req, res) => {
     let amazonSearch = null;
 
     // 4-أ) معدات السلامة: خوذة / جاكيت / قفازات / بوت
+    // 👉 الآن نكتفي بوجود usage + bikeType + itemType ولا نعتمد على missingInfo.length === 0
     if (
       result.category === "safety" &&
       result.usage &&
       result.bikeType &&
-      result.missingInfo &&
-      result.missingInfo.length === 0 &&
       result.itemType
     ) {
       let productCategory = null;
 
       if (result.itemType.startsWith("helmet")) {
+        // لو النوع غير محدد بالتفصيل نعتبرها فل فيس افتراضياً للترشيحات
         productCategory = "helmet-fullface";
       } else if (result.itemType === "jacket") {
         productCategory = "jacket";
