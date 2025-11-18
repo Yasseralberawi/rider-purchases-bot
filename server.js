@@ -1,6 +1,6 @@
 // server.js
-// Backend مستقل - بوت رايدر المشتريات
-// MongoDB + ملف مشتريات لكل عميل + ذاكرة قوية + اختيار أفضل المنتجات + رابط بحث Amazon
+// Backend مستقل - بوت رايدر المشتريات (نسخة V2)
+// MongoDB + ملف مشتريات لكل عميل + أسئلة محترفة + رابط بحث Amazon مخصص
 
 const express = require("express");
 const cors = require("cors");
@@ -9,8 +9,6 @@ const morgan = require("morgan");
 const mongoose = require("mongoose");
 require("dotenv").config();
 
-// منطق اختيار المنتجات من القائمة الداخلية (خوذة + جاكيت + قفازات + حذاء + إكسسوارات)
-const { searchProducts } = require("./logic/productSearch");
 // خدمة بناء رابط بحث Amazon حسب السياق (تستخدم الـ Affiliate Tag)
 const {
   buildAmazonSearchLinkFromContext,
@@ -51,12 +49,12 @@ const purchaseProfileSchema = new mongoose.Schema(
   {
     userId: { type: String, required: true, unique: true, index: true },
 
-    // آخر تفضيلات معروفة
+    // آخر تفضيلات معروفة (للتسجيل فقط، مش لاستخدامها قسرياً في الردود)
     preferredBikeType: { type: String, default: null }, // sport / cruiser / scooter / adventure
     lastUsage: { type: String, default: null }, // city / touring / adventure
 
     lastCategory: { type: String, default: null }, // safety / spare-part / accessory
-    lastItemType: { type: String, default: null }, // helmet-fullface / jacket / gloves / boots / spare-part
+    lastItemType: { type: String, default: null }, // helmet-fullface / jacket / gloves / boots / spare-part / accessory
 
     lastBikeBrand: { type: String, default: null },
     lastBikeModel: { type: String, default: null },
@@ -105,51 +103,34 @@ function T(lang = "ar") {
       ? "أهلاً بك، أنا رايدر المشتريات 👋"
       : "Hi, I'm Rider Purchases 👋",
     genericIntro: isAr
-      ? "مهمتي أساعدك تختار منتج مناسب وأرشدك لأفضل وأرخص موقع متاح حسب طلبك."
-      : "My goal is to help you choose the right product and point you to the best and most affordable site.",
-    askHelmetType: isAr
-      ? "فهمت إنك مهتم بخوذة.\nقبل ما أبحث لك عن خيارات مناسبة، حاب أعرف نوع الخوذة اللي تفضلها أكثر:\n- فل فيس (Full Face)\n- نص وجه (Open Face)\n- موديولار (Modular)\nاكتب نوع الخوذة اللي تفضله."
-      : "Got it, you're looking for a helmet.\nBefore I search for good options, I'd like to know which helmet type you prefer:\n- Full face\n- Open face\n- Modular\nType your preferred helmet type.",
-    askUsage: isAr
-      ? "كمان يهمني أعرف استخدامك أكثر شيء:\n- مدينة (مشاوير يومية)\n- سفر/هاي وي\n- أدفنشر/اوف رود\nاكتب نوع الاستخدام الأقرب لك."
-      : "I also need to know your main use:\n- City (daily commuting)\n- Highway / touring\n- Adventure / off-road\nType the option that matches you.",
-    askBikeTypeForSafety: isAr
-      ? "آخر نقطة: دراجتك أقرب لأي فئة؟\n- سبورت\n- كروزر\n- سكوتر\n- أدفنشر/اوف رود\nاكتب الفئة اللي تناسب دراجتك."
-      : "Last point: Which type is your bike closer to?\n- Sport\n- Cruiser\n- Scooter\n- Adventure / off-road\nType the matching category.",
-    safetyAlmostReady: isAr
-      ? "ممتاز 👍 تقريباً صار عندي صورة واضحة، بعد ما توضح لي النقاط اللي فوق أقدر أوجد لك خيارات مناسبة وأرخص مواقع متاحة."
-      : "Great 👍 Once you answer the questions above, I can suggest suitable options and the best sites.",
-    askSparePartCore: isAr
-      ? "فهمت إنك بدك قطعة غيار.\nعشان أساعدك بدقة، لازم أعرف بالضبط:\n1) نوع الدراجة (مثال: سبورت، كروزر، سكوتر، أدفنشر)\n2) الماركة والموديل (مثال: Yamaha R3 أو Honda CBR500)\n3) سنة الموديل\n4) اسم القطعة أو وصفها (مثال: تيل فرامل أمامي، فلتر زيت، جنزير...)."
-      : "Got it, you're looking for a spare part.\nTo help accurately I need:\n1) Bike type (sport, cruiser, scooter, adventure)\n2) Brand & model (e.g. Yamaha R3 or Honda CBR500)\n3) Year model\n4) Name/description of the part (e.g. front brake pads, oil filter, chain...).",
-    sparePartNextStep: isAr
-      ? "اكتب المعلومات اللي تعرفها من النقاط اللي فوق، حتى لو ما كانت كاملة، وأنا أرتب لك الخيارات وأبحث عن أفضل موقع مناسب."
-      : "Write the info you know from the points above, even if not complete, and I’ll search for the best options and sites.",
-    askAccessory: isAr
-      ? "واضح أنك تدور على إكسسوار للدراجة.\nحاب أعرف نوع الإكسسوار ووين رح يُركّب بالضبط (مثلاً: حامل جوال على المقود، شنطة خلفية، شنطة خزان...)."
-      : "It looks like you're looking for an accessory.\nI need to know what type of accessory and where it will be mounted (e.g. phone mount on handlebar, rear bag, tank bag...).",
-    accessoryUsage: isAr
-      ? "برضه يساعدني أعرف هل الاستخدام أكثر للمدينة، سفر طويل، أو أدفنشر، عشان أوازن بين الراحة والمتانة والسعر."
-      : "It also helps to know if you ride mostly in the city, long-distance touring, or adventure, so I can balance comfort, durability, and price.",
+      ? "شغلي أساعدك تختار المنتج الأنسب وأضبط لك رابط بحث جاهز على Amazon حسب طلبك."
+      : "My job is to help you choose the right product and build a tailored Amazon search link for you.",
+    // شرح أسلوب المستشار
+    proSafetyAsk: isAr
+      ? "عشان أقدر أساعدك كمستشار معدات سلامة، اكتب لي في *رسالة واحدة* التفاصيل التالية:\n1) نوع القطعة (خوذة فل فيس / جاكيت / قفازات / بوت)\n2) نوع الاستخدام (مدينة / سفر / أدفنشر)\n3) نوع الدراجة (سبورت / كروزر / سكوتر / أدفنشر)\n4) لو عندك ماركة مفضلة اذكرها (مثال: Shoei, HJC, AGV)\n5) ميزانيتك التقريبية (مثال: لغاية 500 ريال، 500–1000، أكثر من 1000)\n\nانسخ الكلام فوق وعدّل عليه وارسل التفاصيل في رسالة واحدة."
+      : "To help you professionally, please send *one message* with:\n1) Item type (full-face helmet / jacket / gloves / boots)\n2) Usage (city / touring / adventure)\n3) Bike type (sport / cruiser / scooter / adventure)\n4) Preferred brand if any (e.g. Shoei, HJC, AGV)\n5) Approximate budget.\n\nCopy the template, edit it, and send in one message.",
+    proAccessoryAsk: isAr
+      ? "واضح إنك تدور على إكسسوارات.\nعشان أضبط لك رابط بحث محترف، اكتب في *رسالة واحدة*:\n1) نوع الإكسسوار (حامل جوال، شنطة خلفية، شنطة خزان، شاحن USB...)\n2) وين رح يتركّب (مقود، خزان، خلف الدراجة...)\n3) نوع الاستخدام (مدينة / سفر / أدفنشر)\n4) نوع الدراجة (سبورت / كروزر / سكوتر / أدفنشر)\n5) ماركة مفضلة + ميزانية إن وجدت."
+      : "It looks like you need accessories.\nTo build a pro search link, send in *one message*:\n1) Accessory type\n2) Mounting position\n3) Usage (city/touring/adventure)\n4) Bike type\n5) Preferred brand + budget if any.",
+    proSpareAsk: isAr
+      ? "عشان أقدر أجيب لك رابط لقطعة غيار مضبوط قدر الإمكان، اكتب لي في *رسالة واحدة*:\n1) نوع الدراجة (سبورت / كروزر / سكوتر / أدفنشر)\n2) ماركة الدراجة (Yamaha, Honda, BMW, KTM ...)\n3) موديل الدراجة (R3, CBR500 ...)\n4) سنة الموديل\n5) اسم القطعة أو وصفها (مثال: تيل فرامل أمامي، فلتر زيت، جنزير، سلايدر...)."
+      : "To get you the best possible spare-part search link, send in *one message*:\n1) Bike type\n2) Brand\n3) Model\n4) Model year\n5) Part name or description.",
+    notEnoughInfoSafety: isAr
+      ? "فهمت إنك تسأل عن معدات سلامة، لكن المعلومات لسه ناقصة عشان أضبط لك رابط واحد مضبوط.\n\n"
+      : "I understand you’re asking about safety gear, but I still don’t have enough info to build a precise link.\n\n",
+    notEnoughInfoAccessory: isAr
+      ? "فهمت إنك تحتاج إكسسوارات، لكن لسه التفاصيل ناقصة شوي عشان أضبط لك رابط واحد مضبوط.\n\n"
+      : "I see you need accessories, but I need a bit more detail to build a precise link.\n\n",
+    notEnoughInfoSpare: isAr
+      ? "فهمت إنك تحتاج قطعة غيار، لكن لسه البيانات ناقصة عشان أضبط لك رابط مضبوط لموديل دراجتك.\n\n"
+      : "I see you need a spare part, but I’m still missing info to build a precise link for your bike.\n\n",
     fallback: isAr
-      ? "فهمت طلبك بشكل عام، لكن عشان أقدر أساعدك صح، اشرح لي أكثر: هل اللي تحتاجه يندرج تحت معدات السلامة، قطع غيار، أو إكسسوارات للدراجة؟"
-      : "I understand your request in general, but to help you properly, please clarify: Is this about safety gear, spare parts, or accessories?",
+      ? "فهمت طلبك بشكل عام، لكن عشان أقدر أساعدك صح، وضّح لي: هل تبحث عن معدات سلامة، قطع غيار، أم إكسسوارات للدراجة؟"
+      : "I get your request in general, but to help properly, tell me whether you’re asking about safety gear, spare parts, or accessories.",
   };
 }
 
-// ===== Helpers لتحويل القيم المختصرة إلى نص =====
-
-function helmetLabel(type, lang = "ar") {
-  const isAr = lang === "ar";
-  if (!type) return null;
-  if (type === "helmet-fullface")
-    return isAr ? "خوذة فل فيس" : "full face helmet";
-  if (type === "helmet-openface")
-    return isAr ? "خوذة نص وجه" : "open face helmet";
-  if (type === "helmet-modular")
-    return isAr ? "خوذة موديولار" : "modular helmet";
-  return isAr ? "خوذة" : "helmet";
-}
+/* ===== Helpers لتحويل القيم المختصرة إلى نص ===== */
 
 function usageLabel(usage, lang = "ar") {
   const isAr = lang === "ar";
@@ -173,7 +154,84 @@ function bikeTypeLabel(bikeType, lang = "ar") {
   return bikeType;
 }
 
-// كشف الكاتيجوري من الرسالة أو الـ context
+function helmetLabel(type, lang = "ar") {
+  const isAr = lang === "ar";
+  if (!type) return null;
+  if (type === "helmet-fullface")
+    return isAr ? "خوذة فل فيس" : "full face helmet";
+  if (type === "helmet-openface")
+    return isAr ? "خوذة نص وجه" : "open face helmet";
+  if (type === "helmet-modular")
+    return isAr ? "خوذة موديولار" : "modular helmet";
+  return isAr ? "خوذة" : "helmet";
+}
+
+/* ===== كشف البراند (للمعدات) ===== */
+
+const GEAR_BRANDS = [
+  "shoei",
+  "arai",
+  "agv",
+  "hjc",
+  "ls2",
+  "alpinestars",
+  "dainese",
+  "revit",
+  "rev'it",
+  "icon",
+  "scorpion",
+  "bell",
+];
+
+const BIKE_BRANDS = [
+  "yamaha",
+  "honda",
+  "kawasaki",
+  "suzuki",
+  "bmw",
+  "ktm",
+  "ducati",
+  "harley",
+  "harley-davidson",
+  "triumph",
+  "royal enfield",
+  "royal-enfield",
+  "cf moto",
+  "cfmoto",
+  "benelli",
+];
+
+function detectGearBrand(message = "") {
+  const msg = message.toLowerCase();
+  for (const b of GEAR_BRANDS) {
+    if (msg.includes(b)) {
+      return b.toUpperCase();
+    }
+  }
+  return null;
+}
+
+function detectBikeBrandAndModel(message = "") {
+  const original = message;
+  const msg = message.toLowerCase();
+  for (const rawBrand of BIKE_BRANDS) {
+    const idx = msg.indexOf(rawBrand);
+    if (idx !== -1) {
+      const brandPretty = rawBrand
+        .split(" ")
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(" ");
+      const after = original.slice(idx + rawBrand.length).trim();
+      const modelToken = after.split(/\s+/)[0].replace(/[^\w\-]/g, "");
+      const model = modelToken || null;
+      return { brand: brandPretty, model };
+    }
+  }
+  return { brand: null, model: null };
+}
+
+/* ===== كشف الكاتيجوري من الرسالة فقط (بدون إجبار من الذاكرة) ===== */
+
 function detectCategory(message = "", context = {}) {
   const msg = (message || "").toLowerCase();
 
@@ -236,23 +294,19 @@ function detectCategory(message = "", context = {}) {
 
   const has = (list) => list.some((w) => msg.includes(w));
 
-  // ✅ أولاً: نفهم من الرسالة الحالية
   if (has(safetyWords)) return "safety";
   if (has(spareWords)) return "spare-part";
   if (has(accessoryWords)) return "accessory";
 
-  // ✅ ثانياً: لو ما فهمنا شيء من الرسالة نرجع للي في الذاكرة (context)
-  if (context.category) return context.category;
+  // لو ما قدر يحدد من الرسالة، ممكن يستخدم الكاتيجوري القادم من الواجهة (لو تم تمريره صراحة)
+  if (context && context.category) return context.category;
 
   return null;
 }
 
-// كشف نوع الخوذة من الكلام أو من الـ context
-function detectHelmetType(message = "", context = {}) {
-  if (context.itemType && context.itemType.startsWith("helmet")) {
-    return context.itemType;
-  }
+/* ===== كشف نوع الخوذة / نوع الدراجة / نوع الاستخدام ===== */
 
+function detectHelmetType(message = "", context = {}) {
   const msg = message.toLowerCase();
 
   if (msg.includes("فل") || msg.includes("full")) return "helmet-fullface";
@@ -260,15 +314,10 @@ function detectHelmetType(message = "", context = {}) {
   if (msg.includes("موديولار") || msg.includes("modular"))
     return "helmet-modular";
 
-  if (msg.includes("helmet")) return null;
-  if (msg.includes("خوذة") || msg.includes("خودة")) return null;
-
   return null;
 }
 
-// كشف نوع الدراجة من الرسالة أو الـ context
 function detectBikeType(message = "", context = {}) {
-  if (context.bikeType) return context.bikeType;
   const msg = message.toLowerCase();
 
   if (msg.includes("سبورت") || msg.includes("sport")) return "sport";
@@ -287,9 +336,7 @@ function detectBikeType(message = "", context = {}) {
   return null;
 }
 
-// كشف الاستخدام (مدينة / سفر / أدفنشر)
 function detectUsage(message = "", context = {}) {
-  if (context.usage) return context.usage;
   const msg = message.toLowerCase();
 
   if (msg.includes("مدينة") || msg.includes("daily") || msg.includes("commute"))
@@ -316,299 +363,340 @@ function detectUsage(message = "", context = {}) {
   return null;
 }
 
-// منطق الرد في حالة معدات السلامة (خوذة + جاكيت + قفازات + بوت)
-function handleSafetyFlow(message, lang, context) {
-  const t = T(lang);
+/* =========================
+   منطق معدات السلامة (خوذة / جاكيت / قفازات / بوت)
+   ========================= */
 
+function handleSafetyFlow(message, lang, context = {}) {
+  const t = T(lang);
   const msg = message.toLowerCase();
 
-  const helmetTypeDetected = detectHelmetType(message, context);
   const mentionsHelmet =
-    msg.includes("خوذة") ||
-    msg.includes("خودة") ||
-    msg.includes("helmet") ||
-    (context.itemType && context.itemType.startsWith("helmet"));
-
+    msg.includes("خوذة") || msg.includes("خودة") || msg.includes("helmet");
   const mentionsJacket =
     msg.includes("جاكيت") ||
     msg.includes("jacket") ||
     msg.includes("جاكيت حماية");
-
   const mentionsGloves =
     msg.includes("قفازات") ||
     msg.includes("قلفز") ||
     msg.includes("gloves");
-
   const mentionsBoots =
     msg.includes("بوت") ||
     msg.includes("جزمة") ||
     msg.includes("boots") ||
     msg.includes("حذاء");
 
-  // تحديد نوع القطعة: خوذة أو جاكيت أو قفازات أو بوت
-  let itemType = context.itemType || null;
-  if (helmetTypeDetected) {
-    itemType = helmetTypeDetected;
-  } else if (!itemType && mentionsJacket) {
+  let itemType = null;
+  if (mentionsHelmet) {
+    const ht = detectHelmetType(message);
+    itemType = ht || "helmet-unknown";
+  } else if (mentionsJacket) {
     itemType = "jacket";
-  } else if (!itemType && mentionsGloves) {
+  } else if (mentionsGloves) {
     itemType = "gloves";
-  } else if (!itemType && mentionsBoots) {
+  } else if (mentionsBoots) {
     itemType = "boots";
   }
 
-  const bikeType = detectBikeType(message, context) || context.bikeType;
-  const usage = detectUsage(message, context) || context.usage;
+  const usage = detectUsage(message) || null;
+  const bikeType = detectBikeType(message) || null;
+  const gearBrand = detectGearBrand(message);
 
-  const missing = [];
+  const missingInfo = [];
+  if (!itemType) missingInfo.push("itemType");
+  if (!usage) missingInfo.push("usage");
+  if (!bikeType) missingInfo.push("bikeType");
 
-  // نحتاج usage + bikeType لكل معدات السلامة
-  if (!usage) missing.push("usage");
-  if (!bikeType) missing.push("bikeType");
-
-  // لو خوذة والـ type غير محدد بوضوح
-  if (
-    (!helmetTypeDetected && mentionsHelmet) ||
-    (itemType && itemType === "helmet-unknown")
-  ) {
-    if (!missing.includes("helmetType")) missing.push("helmetType");
+  // لو المعلومات غير كافية → أسلوب المستشار (طلب تفاصيل في رسالة واحدة)
+  if (missingInfo.length > 0) {
+    const intro =
+      lang === "ar"
+        ? `${t.welcomeLine}\n\n${t.notEnoughInfoSafety}`
+        : `${t.welcomeLine}\n\n${t.notEnoughInfoSafety}`;
+    return {
+      category: "safety",
+      itemType,
+      bikeType,
+      bikeBrand: gearBrand || null,
+      bikeModel: null,
+      bikeYear: null,
+      usage,
+      partName: null,
+      missingInfo,
+      amazonSearch: null,
+      reply: intro + t.proSafetyAsk,
+    };
   }
 
-  let replyParts = [t.welcomeLine];
+  // لو المعلومات الأساسية كافية → نبني رابط Amazon مخصص
+  const amazonSearch = buildAmazonSearchLinkFromContext({
+    category: "safety",
+    itemType,
+    usage,
+    bikeType,
+    brand: gearBrand,
+    model: null,
+    partName: null,
+    lang,
+  });
 
-  // جملة شخصية مبنية على الذاكرة
-  const helmetText =
-    itemType && itemType.startsWith("helmet")
-      ? helmetLabel(itemType, lang)
-      : null;
   const usageText = usageLabel(usage, lang);
   const bikeTypeText = bikeTypeLabel(bikeType, lang);
 
-  if (helmetText || usageText || bikeTypeText) {
-    let summary = "";
-    if (helmetText) summary += helmetText;
-    if (usageText) {
-      summary += summary ? " للاستخدام " + usageText : usageText;
-    }
-    if (bikeTypeText) {
-      summary += summary ? " وعلى " + bikeTypeText : bikeTypeText;
-    }
-
-    if (summary) {
-      replyParts.push(
-        lang === "ar"
-          ? `مسجّل عندي إنك مهتم بـ ${summary}.`
-          : `I have noted that you're interested in ${summary}.`
-      );
-    }
-  } else {
-    replyParts.push(t.genericIntro);
+  let itemText = null;
+  if (itemType && itemType.startsWith("helmet")) {
+    itemText = helmetLabel(itemType, lang);
+  } else if (itemType === "jacket") {
+    itemText = lang === "ar" ? "جاكيت حماية" : "riding jacket";
+  } else if (itemType === "gloves") {
+    itemText = lang === "ar" ? "قفازات حماية" : "riding gloves";
+  } else if (itemType === "boots") {
+    itemText = lang === "ar" ? "حذاء/بوت ركوب" : "riding boots";
   }
 
-  if (mentionsHelmet) {
-    // خوذة: نسأل عن النوع + الاستخدام + نوع الدراجة
-    if (!helmetTypeDetected && !context.itemType) replyParts.push(t.askHelmetType);
-    if (!usage) replyParts.push(t.askUsage);
-    if (!bikeType) replyParts.push(t.askBikeTypeForSafety);
-
-    if (missing.length === 0) {
-      replyParts.push(
-        t.safetyAlmostReady +
-          (lang === "ar"
-            ? "\nبعدها أقدر أجهز لك ترشيحات خوذات وروابط لأفضل الأسعار."
-            : "\nThen I can prepare helmet recommendations and best-price links.")
-      );
-    }
-  } else if (mentionsJacket) {
-    // جاكيت حماية
-    if (!usage) replyParts.push(t.askUsage);
-    if (!bikeType) replyParts.push(t.askBikeTypeForSafety);
-
-    if (missing.length === 0) {
-      replyParts.push(
-        t.safetyAlmostReady +
-          (lang === "ar"
-            ? "\nبعدها أقدر أجهز لك ترشيحات جاكيتات حماية وروابط لأفضل الأسعار."
-            : "\nThen I can prepare jacket recommendations and best-price links.")
-      );
-    }
-  } else if (mentionsGloves) {
-    // قفازات حماية
-    if (!usage) replyParts.push(t.askUsage);
-    if (!bikeType) replyParts.push(t.askBikeTypeForSafety);
-
-    if (missing.length === 0) {
-      replyParts.push(
-        t.safetyAlmostReady +
-          (lang === "ar"
-            ? "\nبعدها أقدر أجهز لك ترشيحات قفازات حماية وروابط لأفضل الأسعار."
-            : "\nThen I can prepare glove recommendations and best-price links.")
-      );
-    }
-  } else if (mentionsBoots) {
-    // حذاء/بوت حماية
-    if (!usage) replyParts.push(t.askUsage);
-    if (!bikeType) replyParts.push(t.askBikeTypeForSafety);
-
-    if (missing.length === 0) {
-      replyParts.push(
-        t.safetyAlmostReady +
-          (lang === "ar"
-            ? "\nبعدها أقدر أجهز لك ترشيحات أحذية ركوب موتوسايكل وروابط لأفضل الأسعار."
-            : "\nThen I can prepare riding boots recommendations and best-price links.")
-      );
-    }
+  let summaryLine;
+  if (lang === "ar") {
+    summaryLine =
+      "تمام، فهمت احتياجك 👌\nأنت تبحث عن " +
+      (itemText || "معدات سلامة") +
+      (usageText ? ` للاستخدام: ${usageText}` : "") +
+      (bikeTypeText ? ` على ${bikeTypeText}` : "") +
+      (gearBrand ? ` مع تفضيل ماركة: ${gearBrand}` : "") +
+      ".";
   } else {
-    // معدات سلامة عامة
-    replyParts.push(
-      lang === "ar"
-        ? "واضح أنك تبحث عن معدات سلامة للدراجة (مثل خوذة، جاكيت، قفازات أو بوت).\nحدد لي أكثر: شو نوع القطعة اللي في بالك؟"
-        : "It seems you're looking for safety gear (helmet, jacket, gloves, boots, etc.).\nTell me which item you have in mind."
-    );
+    summaryLine =
+      "Great, I understand your need 👌\nYou are looking for " +
+      (itemText || "safety gear") +
+      (usageText ? ` for ${usageText}` : "") +
+      (bikeTypeText ? ` on ${bikeTypeText}` : "") +
+      (gearBrand ? ` with brand preference: ${gearBrand}` : "") +
+      ".";
   }
+
+  const amazonLine =
+    amazonSearch && amazonSearch.url
+      ? lang === "ar"
+        ? `\n\n🔍 هذا رابط بحث مخصص على Amazon حسب طلبك:\n${amazonSearch.url}\n\nنصيحتي: استخدم الفلاتر داخل Amazon لضبط المقاس، اللون، والسعر المناسب لك.`
+        : `\n\n🔍 Here is a tailored Amazon search link based on your request:\n${amazonSearch.url}\n\nTip: use Amazon filters to tune size, color, and budget.`
+      : "";
 
   return {
     category: "safety",
-    itemType:
-      itemType ||
-      (mentionsHelmet
-        ? "helmet-unknown"
-        : mentionsJacket
-        ? "jacket"
-        : mentionsGloves
-        ? "gloves"
-        : mentionsBoots
-        ? "boots"
-        : null),
-    bikeType: bikeType || null,
-    usage: usage || null,
-    missingInfo: missing,
-    reply: replyParts.join("\n\n"),
+    itemType,
+    bikeType,
+    bikeBrand: gearBrand || null,
+    bikeModel: null,
+    bikeYear: null,
+    usage,
+    partName: null,
+    missingInfo,
+    amazonSearch: amazonSearch || null,
+    reply: `${t.welcomeLine}\n\n${summaryLine}${amazonLine}`,
   };
 }
 
-// منطق الرد في حالة قطع الغيار
-function handleSparePartFlow(message, lang, context) {
+/* =========================
+   منطق قطع الغيار
+   ========================= */
+
+function handleSparePartFlow(message, lang, context = {}) {
   const t = T(lang);
-
-  const bikeType = detectBikeType(message, context) || context.bikeType;
-  let brand = context.bikeBrand || null;
-  let model = context.bikeModel || null;
-  let year = context.bikeYear || null;
-
   const msg = message.toLowerCase();
 
-  // محاولة بسيطة لاستخراج سنة موديل لو العميل كتب 2018 أو 2020 مثلاً
+  const bikeType = detectBikeType(message) || null;
+  let { brand: bikeBrand, model: bikeModel } = detectBikeBrandAndModel(message);
+
+  // سنة الموديل
+  let bikeYear = null;
   const yearMatch = msg.match(/20[0-3][0-9]/);
-  if (!year && yearMatch) {
-    year = yearMatch[0];
+  if (yearMatch) {
+    bikeYear = yearMatch[0];
   }
 
-  // استخراج اسم القطعة بشكل بسيط
-  let partName = context.partName || null;
-  if (!partName) {
-    if (msg.includes("فلتر")) partName = "فلتر زيت";
-    else if (msg.includes("تيل") || msg.includes("pads")) partName = "تيل فرامل";
-    else if (msg.includes("جنزير") || msg.includes("chain")) partName = "جنزير";
-  }
+  // اسم القطعة البسيط
+  let partName = null;
+  if (msg.includes("فلتر")) partName = "فلتر زيت";
+  else if (msg.includes("تيل") || msg.includes("pads")) partName = "تيل فرامل";
+  else if (msg.includes("جنزير") || msg.includes("chain")) partName = "جنزير";
+  else if (msg.includes("بلكات") || msg.includes("بواجي")) partName = "بواجي / شمعة احتراق";
 
-  const missing = [];
-  if (!bikeType) missing.push("bikeType");
-  if (!brand) missing.push("bikeBrand");
-  if (!model) missing.push("bikeModel");
-  if (!year) missing.push("bikeYear");
-  if (!partName) missing.push("partName");
+  const missingInfo = [];
+  if (!bikeType) missingInfo.push("bikeType");
+  if (!bikeBrand) missingInfo.push("bikeBrand");
+  if (!bikeModel) missingInfo.push("bikeModel");
+  if (!bikeYear) missingInfo.push("bikeYear");
+  if (!partName) missingInfo.push("partName");
 
-  let replyParts = [t.welcomeLine, t.genericIntro, t.askSparePartCore];
-
-  // لو في بعض المعلومات موجودة، نلخصها للعميل
-  const pieces = [];
-  if (bikeType) pieces.push(bikeTypeLabel(bikeType, lang));
-  if (brand || model) {
-    const bm = [brand, model].filter(Boolean).join(" ");
-    if (bm) pieces.push(bm);
-  }
-  if (year) pieces.push(lang === "ar" ? `موديل ${year}` : `model year ${year}`);
-  if (partName) {
-    pieces.push(
-      lang === "ar" ? `القطعة المطلوبة: ${partName}` : `requested part: ${partName}`
-    );
-  }
-
-  if (pieces.length) {
-    replyParts.push(
+  // لو المعلومات غير كافية → نطلب من العميل يرسلها في رسالة واحدة
+  if (missingInfo.length > 0) {
+    const intro =
       lang === "ar"
-        ? `المعلومات اللي فهمتها حتى الآن:\n- ${pieces.join("\n- ")}`
-        : `Here is what I understood so far:\n- ${pieces.join("\n- ")}`
-    );
+        ? `${t.welcomeLine}\n\n${t.notEnoughInfoSpare}`
+        : `${t.welcomeLine}\n\n${t.notEnoughInfoSpare}`;
+
+    return {
+      category: "spare-part",
+      itemType: "spare-part",
+      bikeType,
+      bikeBrand: bikeBrand,
+      bikeModel: bikeModel,
+      bikeYear,
+      usage: null,
+      partName,
+      missingInfo,
+      amazonSearch: null,
+      reply: intro + t.proSpareAsk,
+    };
   }
 
-  // توضيح ما ينقص
-  if (missing.length) {
-    if (lang === "ar") {
-      replyParts.push(
-        "عشان أقدر أحدد روابط دقيقة لقطع الغيار، حاول قدر الإمكان تزودني بالتالي (إن أمكن):\n" +
-          (missing.includes("bikeType")
-            ? "- نوع الدراجة (سبورت / كروزر / سكوتر / أدفنشر)\n"
-            : "") +
-          (missing.includes("bikeBrand") ? "- ماركة الدراجة (Yamaha, Honda...)\n" : "") +
-          (missing.includes("bikeModel") ? "- موديل الدراجة (R3, CBR500...)\n" : "") +
-          (missing.includes("bikeYear") ? "- سنة الموديل\n" : "") +
-          (missing.includes("partName") ? "- اسم أو وصف القطعة المطلوبة\n" : "")
-      );
-    } else {
-      replyParts.push(
-        "To give you precise spare part links, please share as much as possible of:\n" +
-          (missing.includes("bikeType") ? "- Bike type (sport / cruiser / scooter / adventure)\n" : "") +
-          (missing.includes("bikeBrand") ? "- Brand (Yamaha, Honda...)\n" : "") +
-          (missing.includes("bikeModel") ? "- Model (R3, CBR500...)\n" : "") +
-          (missing.includes("bikeYear") ? "- Year model\n" : "") +
-          (missing.includes("partName") ? "- Name or description of the part\n" : "")
-      );
-    }
-  } else {
-    // لو كل المعلومات مكتملة، نخلي الرد النهائي يتعدل لاحقاً في مكان آخر بإضافة رابط أمازون
-    replyParts.push(t.sparePartNextStep);
-  }
+  // معلومات كافية → نبني رابط أمازون محدد
+  const amazonSearch = buildAmazonSearchLinkFromContext({
+    category: "spare-part",
+    itemType: "spare-part",
+    usage: null,
+    bikeType,
+    brand: bikeBrand,
+    model: bikeModel,
+    year: bikeYear,
+    partName,
+    lang,
+  });
+
+  const bikeDesc =
+    lang === "ar"
+      ? `${bikeBrand} ${bikeModel} موديل ${bikeYear}`
+      : `${bikeBrand} ${bikeModel} (${bikeYear})`;
+
+  const header =
+    lang === "ar"
+      ? `ممتاز، صار عندي بيانات كافية عن دراجتك:\n- ${bikeDesc}\n- القطعة المطلوبة: ${partName}`
+      : `Great, I now have enough info about your bike:\n- ${bikeDesc}\n- Requested part: ${partName}`;
+
+  const amazonLine =
+    amazonSearch && amazonSearch.url
+      ? lang === "ar"
+        ? `\n\n🔍 هذا رابط بحث مخصص على Amazon لقطع الغيار حسب طلبك:\n${amazonSearch.url}\n\n*ملاحظة:* قبل الشراء تأكد من رقم القطعة (Part Number) وتوافقها مع موديل وسنة دراجتك.`
+        : `\n\n🔍 Here is a tailored Amazon search link for your spare part:\n${amazonSearch.url}\n\n*Note:* Before purchasing, double-check the part number and compatibility with your bike's model and year.`
+      : "";
 
   return {
     category: "spare-part",
     itemType: "spare-part",
-    bikeType: bikeType || null,
-    bikeBrand: brand,
-    bikeModel: model || null,
-    bikeYear: year || null,
-    partName: partName || null,
-    missingInfo: missing,
-    reply: replyParts.join("\n\n"),
+    bikeType,
+    bikeBrand,
+    bikeModel,
+    bikeYear,
+    usage: null,
+    partName,
+    missingInfo,
+    amazonSearch: amazonSearch || null,
+    reply: `${t.welcomeLine}\n\n${header}${amazonLine}`,
   };
 }
 
-// منطق الرد في حالة الإكسسوارات
-function handleAccessoryFlow(message, lang, context) {
+/* =========================
+   منطق الإكسسوارات
+   ========================= */
+
+function handleAccessoryFlow(message, lang, context = {}) {
   const t = T(lang);
+  const msg = message.toLowerCase();
 
-  const usage = detectUsage(message, context) || context.usage;
-  const bikeType = detectBikeType(message, context) || context.bikeType;
+  const usage = detectUsage(message) || null;
+  const bikeType = detectBikeType(message) || null;
 
-  let replyParts = [
-    t.welcomeLine,
-    t.genericIntro,
-    t.askAccessory,
-    t.accessoryUsage,
-  ];
+  // محاولة بسيطة لمعرفة نوع الإكسسوار
+  let accessoryName = null;
+  if (msg.includes("جوال") || msg.includes("phone") || msg.includes("holder")) {
+    accessoryName = "حامل جوال";
+  } else if (msg.includes("شنطة خلفية") || msg.includes("top case")) {
+    accessoryName = "شنطة خلفية";
+  } else if (msg.includes("شنطة خزان") || msg.includes("tank bag")) {
+    accessoryName = "شنطة خزان";
+  } else if (msg.includes("شاحن") || msg.includes("charger") || msg.includes("usb")) {
+    accessoryName = "شاحن USB";
+  }
 
-  const missing = [];
-  if (!usage) missing.push("usage");
-  if (!bikeType) missing.push("bikeType");
+  const gearBrand = detectGearBrand(message);
+
+  const missingInfo = [];
+  if (!accessoryName) missingInfo.push("accessoryType");
+  if (!usage) missingInfo.push("usage");
+  if (!bikeType) missingInfo.push("bikeType");
+
+  if (missingInfo.length > 0) {
+    const intro =
+      lang === "ar"
+        ? `${t.welcomeLine}\n\n${t.notEnoughInfoAccessory}`
+        : `${t.welcomeLine}\n\n${t.notEnoughInfoAccessory}`;
+
+    return {
+      category: "accessory",
+      itemType: "accessory",
+      bikeType,
+      bikeBrand: gearBrand || null,
+      bikeModel: null,
+      bikeYear: null,
+      usage,
+      partName: accessoryName,
+      missingInfo,
+      amazonSearch: null,
+      reply: intro + t.proAccessoryAsk,
+    };
+  }
+
+  // معلومات كافية → نبني رابط أمازون
+  const amazonSearch = buildAmazonSearchLinkFromContext({
+    category: "accessory",
+    itemType: "accessory",
+    usage,
+    bikeType,
+    brand: gearBrand,
+    model: null,
+    partName: accessoryName,
+    lang,
+  });
+
+  const usageText = usageLabel(usage, lang);
+  const bikeTypeText = bikeTypeLabel(bikeType, lang);
+
+  let header;
+  if (lang === "ar") {
+    header =
+      "ممتاز، صار عندي صورة واضحة عن نوع الإكسسوارات اللي تناسب استخدامك ودراجتك.\n" +
+      `- نوع الإكسسوار: ${accessoryName}\n` +
+      `- نوع الاستخدام: ${usageText || "غير محدد"}\n` +
+      `- نوع الدراجة: ${bikeTypeText || "غير محدد"}` +
+      (gearBrand ? `\n- تفضيل ماركة: ${gearBrand}` : "");
+  } else {
+    header =
+      "Great, I now have a clear idea about the accessories that fit your ride.\n" +
+      `- Accessory type: ${accessoryName}\n` +
+      `- Usage: ${usageText || "not specified"}\n` +
+      `- Bike type: ${bikeTypeText || "not specified"}` +
+      (gearBrand ? `\n- Brand preference: ${gearBrand}` : "");
+  }
+
+  const amazonLine =
+    amazonSearch && amazonSearch.url
+      ? lang === "ar"
+        ? `\n\n🔍 هذا رابط بحث مخصص على Amazon للإكسسوارات المناسبة:\n${amazonSearch.url}`
+        : `\n\n🔍 Here is a tailored Amazon search link for suitable accessories:\n${amazonSearch.url}`
+      : "";
 
   return {
     category: "accessory",
-    itemType: context.itemType || null,
-    bikeType: bikeType || null,
-    usage: usage || null,
-    missingInfo: missing,
-    reply: replyParts.join("\n\n"),
+    itemType: "accessory",
+    bikeType,
+    bikeBrand: gearBrand || null,
+    bikeModel: null,
+    bikeYear: null,
+    usage,
+    partName: accessoryName,
+    missingInfo,
+    amazonSearch: amazonSearch || null,
+    reply: `${t.welcomeLine}\n\n${header}${amazonLine}`,
   };
 }
 
@@ -642,38 +730,21 @@ app.post("/api/chat/purchases", async (req, res) => {
     const t = T(lang);
     const profileUserId = userId || "guest";
 
-    // 1) جلب ملف المشتريات (ذاكرة قوية)
+    // 1) جلب ملف المشتريات (للتاريخ فقط، مش لاستخدامه بقوة في المنطق)
     let existingProfile = null;
-    let memoryContext = {};
-
     if (MONGODB_URI && mongoose.connection.readyState === 1) {
       existingProfile = await PurchaseProfile.findOne({ userId: profileUserId });
-
-      if (existingProfile) {
-        memoryContext = {
-          category: existingProfile.lastCategory || undefined,
-          itemType: existingProfile.lastItemType || undefined,
-          bikeType: existingProfile.preferredBikeType || undefined,
-          usage: existingProfile.lastUsage || undefined,
-          bikeBrand: existingProfile.lastBikeBrand || undefined,
-          bikeModel: existingProfile.lastBikeModel || undefined,
-          bikeYear: existingProfile.lastBikeYear || undefined,
-          partName: existingProfile.lastPartName || undefined,
-        };
-      }
     }
 
-    // 2) دمج الذاكرة مع الـ context الحالي (الجديد يغلّب القديم)
+    // 2) لا ندمج الذاكرة في المنطق (كل رسالة تُفهم لوحدها)
     const mergedContext = {
-      ...memoryContext,
-      ...context,
+      ...(context || {}),
     };
 
-    // 3) تحليل الرسالة باستخدام الـ mergedContext
+    // 3) تحليل الرسالة
     const category = detectCategory(message, mergedContext);
 
     let result;
-
     if (category === "safety") {
       result = handleSafetyFlow(message, lang, mergedContext);
     } else if (category === "spare-part") {
@@ -684,236 +755,19 @@ app.post("/api/chat/purchases", async (req, res) => {
       result = {
         category: null,
         itemType: null,
-        bikeType: mergedContext.bikeType || null,
-        usage: mergedContext.usage || null,
+        bikeType: null,
+        bikeBrand: null,
+        bikeModel: null,
+        bikeYear: null,
+        usage: null,
+        partName: null,
         missingInfo: ["category"],
+        amazonSearch: null,
         reply: `${t.welcomeLine}\n\n${t.genericIntro}\n\n${t.fallback}`,
       };
     }
 
-    // 4) منطق البحث عن المنتجات / الروابط
-    let productSearch = null;
-    let amazonSearch = null;
-
-    // 4-أ) معدات السلامة: خوذة / جاكيت / قفازات / بوت
-    if (
-      result.category === "safety" &&
-      result.usage &&
-      result.bikeType &&
-      result.missingInfo &&
-      result.missingInfo.length === 0 &&
-      result.itemType
-    ) {
-      let productCategory = null;
-
-      if (result.itemType.startsWith("helmet")) {
-        productCategory = "helmet-fullface";
-      } else if (result.itemType === "jacket") {
-        productCategory = "jacket";
-      } else if (result.itemType === "gloves") {
-        productCategory = "gloves";
-      } else if (result.itemType === "boots") {
-        productCategory = "boots";
-      }
-
-      if (productCategory) {
-        // رابط بحث Amazon حسب السياق
-        amazonSearch = buildAmazonSearchLinkFromContext({
-          category: result.category,
-          itemType: result.itemType,
-          usage: result.usage,
-          bikeType: result.bikeType,
-          brand: result.bikeBrand,
-          model: result.bikeModel,
-          partName: result.partName,
-          lang,
-        });
-
-        // بحث في القائمة الداخلية
-        productSearch = searchProducts({
-          category: productCategory,
-          usage: result.usage,
-          bikeType: result.bikeType,
-        });
-
-        if (productSearch && productSearch.results && productSearch.results.length) {
-          const lines = [];
-
-          productSearch.results.forEach((product, idx) => {
-            let labelText;
-            if (lang === "ar") {
-              if (product.label === "cheapest") labelText = "أرخص خيار";
-              else if (product.label === "best_value")
-                labelText = "أفضل قيمة مقابل السعر";
-              else if (product.label === "premium") labelText = "أعلى جودة";
-              else labelText = "خيار مقترح";
-            } else {
-              if (product.label === "cheapest") labelText = "Cheapest option";
-              else if (product.label === "best_value") labelText = "Best value";
-              else if (product.label === "premium") labelText = "Top quality";
-              else labelText = "Suggested option";
-            }
-
-            if (lang === "ar") {
-              lines.push(
-                `\n${idx + 1}) ${labelText}\n${product.name} (${product.brand})\nالمتجر: ${product.store}\nالسعر التقريبي: ${product.priceUSD} ${product.currency}\nالرابط: ${product.url}`
-              );
-            } else {
-              lines.push(
-                `\n${idx + 1}) ${labelText}\n${product.name} (${product.brand})\nStore: ${product.store}\nApprox. price: ${product.priceUSD} ${product.currency}\nLink: ${product.url}`
-              );
-            }
-          });
-
-          const usageText = usageLabel(result.usage, lang);
-          const bikeTypeText = bikeTypeLabel(result.bikeType, lang);
-
-          let itemText;
-          if (productCategory === "helmet-fullface") {
-            itemText =
-              helmetLabel(result.itemType, lang) ||
-              (lang === "ar" ? "خوذة" : "helmet");
-          } else if (productCategory === "jacket") {
-            itemText = lang === "ar" ? "جاكيت حماية" : "riding jacket";
-          } else if (productCategory === "gloves") {
-            itemText = lang === "ar" ? "قفازات حماية" : "riding gloves";
-          } else if (productCategory === "boots") {
-            itemText = lang === "ar" ? "بوت/حذاء ركوب" : "riding boots";
-          }
-
-          let detailParts = [];
-          if (itemText) detailParts.push(itemText);
-          if (usageText)
-            detailParts.push(
-              lang === "ar" ? `مناسبة لـ ${usageText}` : `for ${usageText}`
-            );
-          if (bikeTypeText)
-            detailParts.push(
-              lang === "ar" ? `على ${bikeTypeText}` : `on a ${bikeTypeText}`
-            );
-
-          let introLine;
-          if (lang === "ar") {
-            const detailSentence =
-              detailParts.length > 0
-                ? `جهّزت لك 3 خيارات ${detailParts.join(
-                    " ، "
-                  )}, مرتّبة حسب الأفضلية:`
-                : "جهّزت لك 3 خيارات مناسبة، مرتّبة حسب الأفضلية:";
-            introLine = `تمام، صار عندي صورة واضحة عن احتياجك 👌\n${detailSentence}`;
-          } else {
-            const detailSentence =
-              detailParts.length > 0
-                ? `I prepared 3 options ${detailParts.join(
-                    " "
-                  )} ranked for you:`
-                : "I prepared 3 suitable options ranked for you:";
-            introLine = `Great, I now have a clear understanding of your needs 👌\n${detailSentence}`;
-          }
-
-          const amazonLine =
-            amazonSearch && amazonSearch.url
-              ? lang === "ar"
-                ? `🔍 رابط بحث Amazon حسب طلبك:\n${amazonSearch.url}`
-                : `🔍 Amazon search link for your request:\n${amazonSearch.url}`
-              : "";
-
-          result.reply =
-            amazonLine && amazonLine.length
-              ? `${introLine}\n\n${amazonLine}\n\n${lines.join("\n")}`
-              : `${introLine}\n\n${lines.join("\n")}`;
-        }
-      }
-    }
-
-    // 4-ب) قطع الغيار: عندما تكون كل البيانات الأساسية متوفرة
-    if (
-      result.category === "spare-part" &&
-      result.partName &&
-      result.bikeBrand &&
-      result.bikeModel &&
-      result.bikeYear &&
-      (!result.missingInfo || result.missingInfo.length === 0)
-    ) {
-      amazonSearch = buildAmazonSearchLinkFromContext({
-        category: "spare-part",
-        itemType: "spare-part",
-        usage: result.usage,
-        bikeType: result.bikeType,
-        brand: result.bikeBrand,
-        model: result.bikeModel,
-        year: result.bikeYear,
-        partName: result.partName,
-        lang,
-      });
-
-      const bikeDesc =
-        lang === "ar"
-          ? `${result.bikeBrand} ${result.bikeModel} موديل ${result.bikeYear}`
-          : `${result.bikeBrand} ${result.bikeModel} (${result.bikeYear})`;
-
-      const lineHeader =
-        lang === "ar"
-          ? `ممتاز، صار عندي بيانات كافية عن دراجتك:\n- ${bikeDesc}\n- القطعة المطلوبة: ${result.partName}`
-          : `Great, I now have enough info about your bike:\n- ${bikeDesc}\n- Requested part: ${result.partName}`;
-
-      const amazonLine =
-        amazonSearch && amazonSearch.url
-          ? lang === "ar"
-            ? `🔍 هذا رابط بحث مخصص على Amazon حسب طلبك:\n${amazonSearch.url}\n\n*ملاحظة:* تأكد دائماً من توافق رقم القطعة مع موديل وسنة دراجتك قبل الشراء.`
-            : `🔍 Here is a tailored Amazon search link based on your request:\n${amazonSearch.url}\n\n*Note:* Always double-check that the part number is compatible with your bike model and year before purchasing.`
-          : "";
-
-      result.reply = `${T(lang).welcomeLine}\n\n${lineHeader}\n\n${amazonLine}`;
-    }
-
-    // 4-ج) الإكسسوارات: عندما تتوفر بيانات الاستخدام ونوع الدراجة
-    if (
-      result.category === "accessory" &&
-      result.usage &&
-      result.bikeType &&
-      (!result.missingInfo || result.missingInfo.length === 0)
-    ) {
-      // استخدام منطق productSearch الجديد للإكسسوارات
-      productSearch = searchProducts({
-        category: "accessory",
-        usage: result.usage,
-        bikeType: result.bikeType,
-      });
-
-      if (productSearch && productSearch.url) {
-        amazonSearch = {
-          query: productSearch.query,
-          url: productSearch.url,
-        };
-
-        const usageText = usageLabel(result.usage, lang);
-        const bikeTypeText = bikeTypeLabel(result.bikeType, lang);
-
-        let header;
-        if (lang === "ar") {
-          header =
-            "ممتاز، صار عندي فكرة واضحة عن نوع الإكسسوارات اللي تناسب استخدامك ودراجتك.";
-        } else {
-          header =
-            "Great, I now have a clear idea about the accessories that fit your bike and usage.";
-        }
-
-        const details =
-          lang === "ar"
-            ? `- نوع الاستخدام: ${usageText || "غير محدد"}\n- نوع الدراجة: ${bikeTypeText || "غير محدد"}`
-            : `- Usage: ${usageText || "not specified"}\n- Bike type: ${bikeTypeText || "not specified"}`;
-
-        const amazonLine =
-          lang === "ar"
-            ? `🔍 هذا رابط بحث مخصص على Amazon للإكسسوارات المناسبة:\n${amazonSearch.url}`
-            : `🔍 Here is a tailored Amazon search link for suitable accessories:\n${amazonSearch.url}`;
-
-        result.reply = `${T(lang).welcomeLine}\n\n${header}\n\n${details}\n\n${amazonLine}`;
-      }
-    }
-
-    // 5) تحديث ملف المشتريات في MongoDB
+    // 4) تحديث ملف المشتريات في MongoDB (كتاريخ فقط)
     if (MONGODB_URI && mongoose.connection.readyState === 1) {
       const profileUpdate = {
         lastCategory: result.category || existingProfile?.lastCategory || null,
@@ -944,7 +798,7 @@ app.post("/api/chat/purchases", async (req, res) => {
       );
     }
 
-    // 6) إرسال الرد
+    // 5) إرسال الرد
     return res.json({
       ok: true,
       botName: t.botName,
@@ -958,23 +812,17 @@ app.post("/api/chat/purchases", async (req, res) => {
       partName: result.partName || null,
       missingInfo: result.missingInfo || [],
       reply: result.reply,
-      products:
-        productSearch && productSearch.results
-          ? productSearch.results
-          : [],
-      amazonSearch:
-        amazonSearch && amazonSearch.url
-          ? {
-              query: amazonSearch.query,
-              url: amazonSearch.url,
-            }
-          : null,
+      amazonSearch: result.amazonSearch
+        ? {
+            query: result.amazonSearch.query || null,
+            url: result.amazonSearch.url,
+          }
+        : null,
       debug: {
         receivedMessage: message,
         receivedLang: lang,
         receivedUserId: profileUserId,
         receivedContext: context || null,
-        mergedContextFromMemory: memoryContext,
         detectedCategory: category,
       },
     });
